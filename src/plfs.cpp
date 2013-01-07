@@ -510,14 +510,14 @@ plfs_utime(const char *path, struct utimbuf *ut)
 
 ssize_t
 plfs_write(Plfs_fd *fd, const char *buf, size_t size,
-           off_t offset, pid_t pid)
+           off_t offset, pid_t pid, Plfs_write_opt *write_opt)
 {
     ostringstream oss;
     oss << fd->getPath() << " -> " <<offset << ", " << size;
     debug_enter(__FUNCTION__,oss.str());
     ssize_t wret = 0;
-    if (size > 0){
-        wret = fd->write(buf, size, offset, pid);
+    if(size > 0){
+       wret = fd->write(buf, size, offset, pid, write_opt);
     }
     debug_exit(__FUNCTION__,oss.str(),(int)wret);
     return wret;

@@ -189,7 +189,7 @@ SMF_Writer::write(const string &filename, const void *buf, off_t offset,
     off_t physical_offset;
     int ret;
     FileID fileid;
-    struct IndexEntry entry;
+    struct SMFIndexEntry entry;
     map<string, FileID>::iterator itr;
 
     ret = require(WRITER_OPENDATAFILE, NULL);
@@ -215,7 +215,7 @@ SMF_Writer::truncate(const string &filename, off_t offset, InMemoryCache *meta,
                  InMemoryCache *index)
 {
     int ret;
-    struct IndexEntry entry;
+    struct SMFIndexEntry entry;
     FileID fileid;
     map<string, FileID>::iterator itr;
 

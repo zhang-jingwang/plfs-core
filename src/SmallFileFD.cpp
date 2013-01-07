@@ -36,7 +36,8 @@ Small_fd::rename(const char *path, struct plfs_backend *back) {
 }
 
 ssize_t
-Small_fd::write(const char *buf, size_t size, off_t offset, pid_t pid)
+Small_fd::write(const char *buf, size_t size, off_t offset,
+                pid_t pid, Plfs_write_opt *unused)
 {
     if (open_flags == O_WRONLY || open_flags == O_RDWR) {
         return container->write(myName, buf, offset, size, pid);

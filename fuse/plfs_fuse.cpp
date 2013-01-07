@@ -1078,7 +1078,7 @@ int Plfs::f_write(const char *path, const char *buf, size_t size, off_t offset,
     }
     FUSE_PLFS_ENTER;
     GET_OPEN_FILE;
-    ret = plfs_write( of, buf, size, offset, fuse_get_context()->pid );
+    ret = plfs_write( of, buf, size, offset, fuse_get_context()->pid, NULL );
     FUSE_PLFS_EXIT;
 }
 

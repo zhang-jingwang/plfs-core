@@ -72,16 +72,19 @@ class Container
         static mode_t dropping_mode();
         static int create( const string&, struct plfs_backend *,const string&,
                            mode_t mode, int flags, int *extra_attempts,pid_t,
-                           unsigned, bool lazy_subdir );
+                           unsigned);
 
         static bool isContainer(const struct plfs_pathback *physical_path,
                                 mode_t *);
         static string getIndexPath( const string&, const string&,
-                                    int pid,double);
+                                    int pid,double,IndexEntryType);
         static string getDataPath(  const string&, const string&,
-                                    int pid, double);
+                                    int pid, double, IndexEntryType);
         static string getIndexHostPath(const string& path,
-                                       const string& host,int pid,double ts);
+                                       const string& host,int pid,double ts,
+                                       IndexEntryType);
+        static string getMetalinkPath(const string& container, int pid,
+                                      double timestamp);
         static int addMeta(off_t, size_t, const string&, struct plfs_backend *,
                            const string&,uid_t,double,int,size_t);
         static string fetchMeta( const string&, off_t *, size_t *,
@@ -91,9 +94,8 @@ class Container
         static int removeOpenrecord( const string&, struct plfs_backend *,
                                      const string&, pid_t );
 
-        static size_t getHostDirId( const string& );
-        static string getHostDirPath( const string&,
-                                      const string&, subdir_type );
+        static size_t getHostDirId( int );
+        static string getHostDirPath( const string&, int , subdir_type );
         static string getMetaDirPath( const string& );
         static string getVersionDir( const string& path );
         static string getAccessFilePath( const string& path );
@@ -114,12 +116,10 @@ class Container
 
 
         static int makeHostDir(const string& path, struct plfs_backend *b,
-                               const string& host,
-                               mode_t mode, parentStatus);
+                               int pid, mode_t mode, parentStatus);
         static int makeHostDir(const ContainerPaths& paths,mode_t mode,
-                               parentStatus pstat, string& physical_hostdir,
-                               struct plfs_backend **phys_backp,
-                               bool& use_metalink);
+                               parentStatus pstat,
+                               pid_t, double);
         static int transferCanonical(const plfs_pathback *from,
                                      const plfs_pathback *to,
                                      const string& from_backend,
@@ -136,14 +136,17 @@ class Container
 
         static int createMetalink(struct plfs_backend *,
                                   struct plfs_backend *,
-                                  const string &, string &, 
-                                  struct plfs_backend **, bool&);
+                                  const string &, 
+                                  pid_t, double, bool);
         static int readMetalink(const string&, struct plfs_backend *,
                                 PlfsMount *, size_t&, 
                                 struct plfs_backend **);
         static int resolveMetalink(const string &, struct plfs_backend *,
                                    PlfsMount *, string &, 
                                    struct plfs_backend **);
+        static int collectTargets(const string&, struct plfs_backend *,
+                                  set<string> &);
+
         static int collectIndices(const string& path, 
                                   struct plfs_backend *back,
                                   vector<plfs_pathback> &indices,
@@ -153,7 +156,8 @@ class Container
                                    struct plfs_backend *back,
                                    vector<plfs_pathback> &files,
                                    vector<plfs_pathback> *dirs,
-                                   vector<string> *mlinks,
+                                   vector<plfs_pathback> *mlinks,
+                                   set<string>    &targets,
                                    vector<string> &filters,
                                    bool full_path);
         static int flattenIndex( const string&, struct plfs_backend *,Index * );
@@ -164,9 +168,11 @@ class Container
         static int freeIndex( Index ** );
         static size_t hashValue( const char *str );
         static blkcnt_t bytesToBlocks( size_t total_bytes );
+#if 0
         static int nextdropping( const string&, struct plfs_backend *,
                                  string *, struct plfs_backend **, const char *,
                                  IOSDirHandle **, IOSDirHandle **, string * );
+#endif
         static int makeSubdir(const string& path, mode_t mode,
                               struct plfs_backend *backend);
         static int makeDropping(const string& path, struct plfs_backend *b);
@@ -193,11 +199,9 @@ class Container
         static int createHelper( const string&, struct plfs_backend *,
                                  const string&,
                                  mode_t mode, int flags, int *extra_attempts,
-                                 pid_t,unsigned,
-                                 bool lazy_subdir);
+                                 pid_t,unsigned);
         static int makeTopLevel(const string&, struct plfs_backend *,
-                                const string&, mode_t, pid_t,
-                                unsigned, bool lazy_subdir);
+                                const string&, mode_t, pid_t, unsigned);
         static string getChunkPath( const string&, const string&,
                                     int pid, const char *, double );
         static string chunkPath( const string& hostdir, const char *type,
@@ -210,9 +214,12 @@ class Container
         static string hostdirFromChunk( string chunkpath, const char *type );
         static string timestampFromChunk(string hostindex, const char *type);
         static string containerFromChunk( string datapath );
+        static int pidFromChunk( string chunkpath );
+#if 0
         static struct dirent *getnextent( IOSDirHandle *dhand,
                                           const char *prefix,
                                           struct dirent *ds );
+#endif
 };
 
 #endif

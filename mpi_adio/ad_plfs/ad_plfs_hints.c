@@ -21,6 +21,7 @@ void ADIOI_PLFS_SetInfo(ADIO_File fd, MPI_Info users_info, int *error_code)
     int disable_broadcast = 0;
     int flatten_close = 0;
     int disable_parindex_read = 0;
+    int enable_adio_pidx = 0;
     int gen_error_code,rank;
     MPI_Comm_rank( fd->comm, &rank );
     *error_code = MPI_SUCCESS;
@@ -87,6 +88,21 @@ void ADIOI_PLFS_SetInfo(ADIO_File fd, MPI_Info users_info, int *error_code)
                     MPI_Abort(MPI_COMM_WORLD, 1);
                 }
                 MPI_Info_set(fd->info, "plfs_disable_paropen", value);
+            }
+            /* plfs_enable_adio_pidx */
+            MPI_Info_get(users_info, "plfs_enable_adio_pidx", MPI_MAX_INFO_VAL,
+                         value, &flag);
+            if (flag) {
+                enable_adio_pidx = atoi(value);
+                tmp_val = enable_adio_pidx;
+                MPI_Bcast(&tmp_val, 1, MPI_INT, 0, fd->comm);
+                if (tmp_val != enable_adio_pidx) {
+                    FPRINTF(stderr, "ADIOI_PLFS_SetInfo: "
+                            "the value for key \"plfs_enable_adio_pidx\" "
+                            "must be the same on all processes\n");
+                    MPI_Abort(MPI_COMM_WORLD, 1);
+                }
+                MPI_Info_set(fd->info, "plfs_enable_adio_pidx", value);
             }
             ADIOI_Free(value);
         }

@@ -17,10 +17,11 @@ using namespace std;
 // shadow or canonical container (i.e. not relying on symlinks)
 // anyway, this should all happen above WriteFile and be transparent to
 // WriteFile.  This comment is for educational purposes only.
-WriteFile::WriteFile(string path, string newhostname,
+WriteFile::WriteFile(string logical, string path, string newhostname,
                      mode_t newmode, size_t buffer_mbs,
                      struct plfs_backend *backend) : Metadata::Metadata()
 {
+    this->logical_path      = logical;
     this->container_path    = path;
     this->subdir_path       = path;     /* not really a subdir */
     this->subdirback        = backend;
@@ -72,16 +73,41 @@ WriteFile::~WriteFile()
     pthread_mutex_destroy( &index_mux );
 }
 
+// a helper function to set OpenFh for each WriteType
+int WriteFile::setOpenFh(OpenFh *ofh, IOSHandle *fh, WriteType wType)
+{
+    assert(ofh != NULL && fh != NULL);
+    switch( wType ){
+       case SINGLE_HOST_WRITE:
+          ofh->sh_fh = fh;
+          break;
+       case SIMPLE_FORMULA_WRITE:
+       case SIMPLE_FORMULA_WITHOUT_INDEX:
+          ofh->sf_fhs.push_back(fh);
+          break;
+       default:
+           mlog(WF_DRARE, "%s, unknown write type", __FUNCTION__);
+           return -1;
+    }
+    return 0;
+}
 
 /* ret 0 or -err */
 int WriteFile::sync()
 {
     int ret = 0;
-    // iterate through and sync all open fds
+    // iterate through and sync all open fhs
     Util::MutexLock( &data_mux, __FUNCTION__ );
     map<pid_t, OpenFh >::iterator pids_itr;
+    WF_FH_ITR fh_itr;
+    OpenFh *ofh;
     for( pids_itr = fhs.begin(); pids_itr != fhs.end() && ret==0; pids_itr++ ) {
-        ret = pids_itr->second.fh->Fsync();
+        ofh = &pids_itr->second;
+        for(fh_itr = ofh->sf_fhs.begin(); fh_itr != ofh->sf_fhs.end();
+            fh_itr ++){
+            ret = (*fh_itr)->Fsync();
+        }
+        ret = ofh->sh_fh->Fsync();
     }
     Util::MutexUnlock( &data_mux, __FUNCTION__ );
 
@@ -89,13 +115,7 @@ int WriteFile::sync()
     Util::MutexLock( &index_mux, __FUNCTION__ );
     if ( ret == 0 ) {
         index->flush();
-    }
-    if ( ret == 0 ) {
-        IOSHandle *syncfh;
-        struct plfs_backend *ib;
-        syncfh = index->getFh(&ib);
-        //XXXCDC:iostore maybe index->flush() should have a sync param?
-        ret = syncfh->Fsync();
+        index->sync();
     }
     Util::MutexUnlock( &index_mux, __FUNCTION__ );
     return ret;
@@ -110,26 +130,23 @@ int WriteFile::sync( pid_t pid )
         // ugh, sometimes FUSE passes in weird pids, just ignore this
         //ret = -ENOENT;
     } else {
-        ret = ofh->fh->Fsync();
+        WF_FH_ITR itr;
+        for(itr = ofh->sf_fhs.begin(); itr != ofh->sf_fhs.end(); itr ++ ){
+            ret = (*itr)->Fsync();
+        }
+        ret = ofh->sh_fh->Fsync();
         Util::MutexLock( &index_mux, __FUNCTION__ );
         if ( ret == 0 ) {
             index->flush();
-        }
-        if ( ret == 0 ) {
-            IOSHandle *syncfh;
-            struct plfs_backend *ib;
-            syncfh = index->getFh(&ib);
-            //XXXCDC:iostore maybe index->flush() should have a sync param?
-            ret  = syncfh->Fsync();
+            index->sync();
         }
         Util::MutexUnlock( &index_mux, __FUNCTION__ );
     }
     return ret;
 }
 
-
-// returns -err or number of writers
-int WriteFile::addWriter( pid_t pid, bool child )
+// returns -errno or number of writers
+int WriteFile::addWriter( pid_t pid, bool child , WriteType wType)
 {
     int ret = 0;
     Util::MutexLock(   &data_mux, __FUNCTION__ );
@@ -137,15 +154,28 @@ int WriteFile::addWriter( pid_t pid, bool child )
     if (ofh != NULL) {
         ofh->writers++;
     } else {
+        if (child==true){
+            // child may use different hostdirId with parent, so
+            // set it up corrently for child
+            ContainerPaths c_paths;
+            ret = findContainerPaths(logical_path,c_paths,pid);
+            if (ret!=0){
+                PLFS_EXIT(ret);
+            }
+            ret=Container::makeHostDir(c_paths, mode, PARENT_ABSENT,
+                                       pid, Util::getTime());
+        }
         /* note: this uses subdirback from object to open */
         IOSHandle *fh;
-        fh = openDataFile( subdir_path, hostname, pid, DROPPING_MODE, ret);
+        fh = openDataFile(subdir_path, hostname, pid, DROPPING_MODE, wType, ret);
         if ( fh != NULL ) {
             struct OpenFh xofh;
             xofh.writers = 1;
-            xofh.fh = fh;
+            setOpenFh(&xofh,fh,wType);
             fhs[pid] = xofh;
-        } // else, ret was already set
+        } else {
+            ret = -errno;
+        }
     }
     int writers = incrementOpens(0);
     if ( ret == 0 && ! child ) {
@@ -183,15 +213,15 @@ size_t WriteFile::numWriters( )
 // it shows up when a makefile does a command like ./foo > bar
 // the bar gets 1 open, 2 writers, 1 flush, 1 release
 // and then the reference counting is screwed up
-// the problem is that a child is using the parents fd
+// the problem is that a child is using the parents fh
 struct OpenFh *WriteFile::getFh( pid_t pid ) {
     map<pid_t,OpenFh>::iterator itr;
     struct OpenFh *ofh = NULL;
     if ( (itr = fhs.find( pid )) != fhs.end() ) {
         /*
             ostringstream oss;
-            oss << __FILE__ << ":" << __FUNCTION__ << " found fd "
-                << itr->second->fd << " with writers "
+            oss << __FILE__ << ":" << __FUNCTION__ << " found fh "
+                << itr->second->fh << " with writers "
                 << itr->second->writers
                 << " from pid " << pid;
             mlog(WF_DCOMMON, "%s", oss.str().c_str() );
@@ -199,22 +229,22 @@ struct OpenFh *WriteFile::getFh( pid_t pid ) {
         ofh = &(itr->second);
     } else {
         // here's the code that used to do it so a child could share
-        // a parent fd but for some reason I commented it out
+        // a parent fh but for some reason I commented it out
         /*
            // I think this code is a mistake.  We were doing it once
            // when a child was writing to a file that the parent opened
            // but shouldn't it be OK to just give the child a new datafile?
-        if ( fds.size() > 0 ) {
+        if ( fhs.size() > 0 ) {
             ostringstream oss;
             // ideally instead of just taking a random pid, we'd rather
             // try to find the parent pid and look for it
             // we need this code because we've seen in FUSE that an open
             // is done by a parent but then a write comes through as the child
             mlog(WF_DRARE, "%s WARNING pid %d is not mapped. "
-                    "Borrowing fd %d from pid %d",
+                    "Borrowing fh %d from pid %d",
                     __FILE__, (int)pid, (int)fds.begin()->second->fd,
                     (int)fds.begin()->first );
-            ofd = fds.begin()->second;
+            ofd = fhs.begin()->second;
         } else {
             mlog(WF_DCOMMON, "%s no fd to give to %d", __FILE__, (int)pid);
             ofd = NULL;
@@ -226,13 +256,37 @@ struct OpenFh *WriteFile::getFh( pid_t pid ) {
     return ofh;
 }
 
-/* ret 0 or -err */
+IOSHandle* WriteFile::whichFh ( OpenFh *ofh, WriteType wType )
+{
+    IOSHandle *fh;
+    if (ofh == NULL) return NULL;
+    switch( wType ){
+       case SINGLE_HOST_WRITE:
+          fh = ofh->sh_fh;
+          break;
+       case SIMPLE_FORMULA_WRITE:
+       case SIMPLE_FORMULA_WITHOUT_INDEX:
+          if ( ofh->sf_fhs.empty() ){
+              fh = NULL;
+          }else{
+              fh = ofh->sf_fhs.back();
+          }
+          break;
+       default:
+           mlog(WF_DRARE, "%s, unknown write type", __FUNCTION__);
+           fh = NULL;
+    }
+    return fh;
+}
+
 /* uses this->subdirback for close */
-int WriteFile::closeFh(IOSHandle *fh)
+/* ret 0 or -err */
+int WriteFile::closeFh( IOSHandle *fh )
 {
     map<IOSHandle *,string>::iterator paths_itr;
     paths_itr = paths.find( fh );
     string path = ( paths_itr == paths.end() ? "ENOENT?" : paths_itr->second );
+    // XXX 
     int ret = this->subdirback->store->Close(fh);
     mlog(WF_DAPI, "%s:%s closed fh %p for %s: %d %s",
          __FILE__, __FUNCTION__, fh, path.c_str(), ret,
@@ -259,7 +313,11 @@ WriteFile::removeWriter( pid_t pid )
     } else {
         ofh->writers--;
         if ( ofh->writers <= 0 ) {
-            ret = closeFh( ofh->fh );
+            WF_FH_ITR itr;
+            for(itr = ofh->sf_fhs.begin(); itr != ofh->sf_fhs.end(); itr ++ ){
+                ret = closeFh(*itr);
+            }
+            ret = closeFh(ofh->sh_fh);
             fhs.erase( pid );
         }
     }
@@ -277,7 +335,7 @@ WriteFile::extend( off_t offset )
         return -ENOENT;
     }
     pid_t p = fhs.begin()->first;
-    index->addWrite( offset, 0, p, createtime, createtime );
+    index->extend(offset, p, createtime);
     addWrite( offset, 0 );   // maintain metadata
     return 0;
 }
@@ -290,7 +348,8 @@ WriteFile::extend( off_t offset )
 //
 // returns bytes written or -err
 ssize_t
-WriteFile::write(const char *buf, size_t size, off_t offset, pid_t pid)
+WriteFile::write(const char *buf, size_t size, off_t offset, pid_t pid,
+                 WriteType wType)
 {
     int ret = 0;
     ssize_t written;
@@ -299,16 +358,19 @@ WriteFile::write(const char *buf, size_t size, off_t offset, pid_t pid)
         // we used to return -ENOENT here but we can get here legitimately
         // when a parent opens a file and a child writes to it.
         // so when we get here, we need to add a child datafile
-        ret = addWriter( pid, true );
+        ret = addWriter( pid, true , wType);
         if ( ret > 0 ) {
             // however, this screws up the reference count
             // it looks like a new writer but it's multiple writers
-            // sharing an fd ...
+            // sharing an fh ...
             ofh = getFh( pid );
         }
     }
-    if ( ofh != NULL && ret >= 0 ) {
-        IOSHandle *wfh = ofh->fh;
+    IOSHandle *wfh = whichFh(ofh, wType);
+    if ( wfh == NULL ){
+        wfh = openNewDataFile(pid, wType);
+    }
+    if ( wfh != NULL ) {
         // write the data file
         double begin, end;
         begin = Util::getTime();
@@ -318,7 +380,16 @@ WriteFile::write(const char *buf, size_t size, off_t offset, pid_t pid)
         if ( ret >= 0 ) {
             write_count++;
             Util::MutexLock(   &index_mux , __FUNCTION__);
-            index->addWrite( offset, ret, pid, begin, end );
+            if (wType == SINGLE_HOST_WRITE){
+                index->addWrite( offset, ret, pid, begin, end );
+            }else if (wType == SIMPLE_FORMULA_WRITE){
+                index->updateSimpleFormula(begin,end);
+            }else if (wType == SIMPLE_FORMULA_WITHOUT_INDEX){
+                // do nothing
+            }else{
+                mlog(WF_DCOMMON, "Unexpected write type %d", wType);
+                return -1;
+            }
             // TODO: why is 1024 a magic number?
             int flush_count = 1024;
             if (write_count%flush_count==0) {
@@ -341,21 +412,40 @@ WriteFile::write(const char *buf, size_t size, off_t offset, pid_t pid)
 }
 
 // this assumes that the hostdir exists and is full valid path
-// returns 0 or -err
-int WriteFile::openIndex( pid_t pid ) {
+// returns 0 or -errno
+int WriteFile::openIndex( pid_t pid, WriteType wType) {
     int ret = 0;
+    bool new_index = false;
     string index_path;
+
     /* note: this uses subdirback from obj to open */
     IOSHandle *fh = openIndexFile(subdir_path, hostname, pid, DROPPING_MODE,
-                                  &index_path, ret);
-    if ( fh != NULL ) {
-        Util::MutexLock(&index_mux , __FUNCTION__);
-        //XXXCDC:iostore need to pass the backend down into index?
-        index = new Index(container_path, subdirback, fh);
-        Util::MutexUnlock(&index_mux, __FUNCTION__);
+                                  &index_path, wType, ret);
+    if ( fh == NULL ) {
+        ret = -errno;
+    } else {
+        if ( index == NULL ) {
+           Util::MutexLock(&index_mux , __FUNCTION__);
+           if ( index == NULL ){
+              plfs_backend *iback;
+              string bpath;
+              ret = plfs_phys_backlookup(container_path.c_str(), NULL,
+                                         &iback, &bpath);
+              if (ret != 0) {
+                 /* this shouldn't ever happen */
+                 mlog(WF_CRIT, "openIndex: %s backlookup failed",
+                       container_path.c_str());
+                 Util::MutexUnlock(&index_mux, __FUNCTION__);
+                 return ret;
+              }
+              index = new Index(container_path,iback);
+              new_index = true;
+           }
+           Util::MutexUnlock(&index_mux, __FUNCTION__);
+        }
         mlog(WF_DAPI, "In open Index path is %s",index_path.c_str());
-        index->index_path=index_path;
-        if(index_buffer_mbs) {
+        index->setCurrentFh(fh,index_path);
+        if(new_index && index_buffer_mbs) {
             index->startBuffering();
         }
     }
@@ -364,15 +454,17 @@ int WriteFile::openIndex( pid_t pid ) {
 
 int WriteFile::closeIndex( )
 {
-    IOSHandle *closefh;
-    struct plfs_backend *ib;
     int ret = 0;
+    vector< IOSHandle * > fh_list;
+    vector< IOSHandle * >::iterator itr;
     Util::MutexLock(   &index_mux , __FUNCTION__);
+    // we are closing index, so enable flushing pattern index
+    index->enablePidxFlush();
     ret = index->flush();
-    closefh = index->getFh(&ib);
-    /* XXX: a bit odd that we close the index instead of the index itself */
-    //XXXCDC:iostore via ib
-    ret = closeFh( closefh );
+    index->getFh( fh_list );
+    for(itr=fh_list.begin(); itr!=fh_list.end(); itr++){
+        ret = closeFh( *itr );
+    }
     delete( index );
     index = NULL;
     Util::MutexUnlock( &index_mux, __FUNCTION__ );
@@ -380,15 +472,44 @@ int WriteFile::closeIndex( )
 }
 
 // returns 0 or -err
+IOSHandle* WriteFile::openNewDataFile( pid_t pid, WriteType wType )
+{
+    int ret;
+    Util::MutexLock(   &data_mux, __FUNCTION__ );
+    IOSHandle *fh = openDataFile( subdir_path, hostname, pid, DROPPING_MODE, wType, ret);
+    if ( fh != NULL ) {
+        struct OpenFh *ofh = getFh( pid );
+        if (ofh == NULL){
+            struct OpenFh xofh;
+            xofh.writers = 1;
+            setOpenFh(&xofh, fh, wType);
+            fhs[pid] = xofh;
+        } else {
+            setOpenFh(ofh, fh, wType);
+        }
+    }
+    Util::MutexUnlock( &data_mux, __FUNCTION__ );
+    return fh; 
+}
+
+// returns 0 or -errno
 int WriteFile::Close()
 {
     int failures = 0;
     Util::MutexLock(   &data_mux , __FUNCTION__);
-    map<pid_t,OpenFh>::iterator itr;
+    map<pid_t,OpenFh >::iterator itr;
+    WF_FH_ITR fh_itr;
     // these should already be closed here
     // from each individual pid's close but just in case
     for( itr = fhs.begin(); itr != fhs.end(); itr++ ) {
-        if ( closeFh( itr->second.fh ) != 0 ) {
+        for(fh_itr = itr->second.sf_fhs.begin();
+            fh_itr != itr->second.sf_fhs.end();
+            fh_itr++){
+            if ( closeFh( *fh_itr ) != 0 ) {
+                failures++;
+            }
+        }
+        if ( closeFh( itr->second.sh_fh ) != 0 ){
             failures++;
         }
     }
@@ -406,18 +527,54 @@ int WriteFile::truncate( off_t offset )
 }
 
 /* uses this->subdirback to open */
-IOSHandle *WriteFile::openIndexFile(string path, string host, pid_t p,
-                                    mode_t m, string *index_path, int &ret)
+IOSHandle* WriteFile::openIndexFile(string path, string host, pid_t p, mode_t m,
+                             string *index_path, WriteType wType, int &ret)
 {
-    *index_path = Container::getIndexPath(path,host,p,createtime);
+    switch (wType){
+        case SINGLE_HOST_WRITE:
+           *index_path = Container::getIndexPath(path,host,p,createtime,
+                                                 BYTERANGE);
+           break;
+        case SIMPLE_FORMULA_WRITE:
+           if (index->getFh(SIMPLEFORMULA) != NULL ) return NULL;
+           // store SimpleFormula index file in canonical container
+           // so we can always get the correct metalink locations,
+           // even after renaming the file
+           *index_path = Container::getIndexPath(container_path,host,p,
+                                                 metalinkTime,SIMPLEFORMULA);
+           break;
+        case SIMPLE_FORMULA_WITHOUT_INDEX:
+           // do nothing
+           return NULL;
+        default:
+           mlog(WF_DRARE, "%s, unexpected write type", __FUNCTION__);
+           return NULL;
+    }
+    mlog(WF_DBG, "WF: opening index file %s", (*index_path).c_str());
     return openFile(*index_path,m,ret);
 }
 
 /* uses this->subdirback to open */
-IOSHandle *WriteFile::openDataFile(string path, string host, pid_t p, mode_t m,
-        int &ret)
+IOSHandle* WriteFile::openDataFile(string path, string host, pid_t p, mode_t m,
+                            WriteType wType, int &ret)
 {
-    return openFile(Container::getDataPath(path,host,p,createtime),m,ret);
+    string data_path;
+    switch (wType){
+        case SINGLE_HOST_WRITE:
+           data_path = Container::getDataPath(path,host,p,createtime,
+                                              BYTERANGE);
+           break;
+        case SIMPLE_FORMULA_WRITE:
+        case SIMPLE_FORMULA_WITHOUT_INDEX:
+           data_path = Container::getDataPath(path,host,p,formulaTime,
+                                              SIMPLEFORMULA);
+           break;
+        default:
+           mlog(WF_DRARE, "%s, unknown write type", __FUNCTION__);
+           return NULL;
+    }
+    mlog(WF_DBG, "WF: opening data file %s", data_path.c_str());
+    return openFile(data_path , m, ret);
 }
 
 // returns an fh or null
@@ -438,16 +595,37 @@ IOSHandle *WriteFile::openFile(string physicalpath, mode_t xmode, int &ret )
     return(fh);
 }
 
+// a helper function to resotre data file fh
+IOSHandle* WriteFile::restore_helper(IOSHandle *fh, string *path)
+{
+    IOSHandle *retfh = NULL;
+    int ret;
+    map<IOSHandle*,string>::iterator paths_itr;
+    paths_itr = paths.find( fh );
+    if ( paths_itr == paths.end() ) {
+        return retfh;
+    }
+    *path = paths_itr->second;
+    if ( closeFh( fh ) != 0 ) {
+        return retfh;
+    }
+    retfh = openFile( *path, mode ,ret);
+    return retfh;
+}
+
 // we call this after any calls to f_truncate
 // if fuse::f_truncate is used, we will have open handles that get messed up
 // in that case, we need to restore them
 // what if rename is called and then f_truncate?
 // return 0 or -err
-int WriteFile::restoreFds( bool droppings_were_truncd )
+int WriteFile::restoreFhs( bool droppings_were_truncd )
 {
     map<IOSHandle *,string>::iterator paths_itr;
     map<pid_t, OpenFh >::iterator pids_itr;
+    OpenFh *ofh;
+    IOSHandle *retfh;
     int ret = -ENOSYS;
+
     // "has_been_renamed" is set at "addWriter, setPath" executing path.
     // This assertion will be triggered when user open a file with write mode
     // and do truncate. Has nothing to do with upper layer rename so I comment
@@ -460,46 +638,43 @@ int WriteFile::restoreFds( bool droppings_were_truncd )
     mlog(WF_DAPI, "Entering %s",__FUNCTION__);
     // first reset the index fd
     if ( index ) {
-        IOSHandle *restfh, *retfh;
-        struct plfs_backend *ib;
         Util::MutexLock( &index_mux, __FUNCTION__ );
         index->flush();
-        restfh = index->getFh(&ib);
-        paths_itr = paths.find( restfh );
-        if ( paths_itr == paths.end() ) {
-            return -ENOENT;
+        vector< IOSHandle * > fh_list;
+        index->getFh( fh_list );
+        vector< IOSHandle * >::iterator itr;
+        index->index_paths.clear();
+        for(itr=fh_list.begin(); itr!=fh_list.end(); itr++){
+            string indexpath;
+            if ( (retfh = restore_helper(*itr, &indexpath)) == NULL ){
+                Util::MutexUnlock( &index_mux, __FUNCTION__ );
+                return ret;
+            }
+            index->setCurrentFh( retfh, indexpath );
         }
-        string indexpath = paths_itr->second;
-        /* note: this uses subdirback from object */
-        if ( (ret=closeFh( restfh )) != 0 ) {
-            return ret; 
-        }
-        /* note: this uses subdirback from object */
-        if ( (retfh = openFile( indexpath, mode, ret )) < 0 ) {
-            return ret; 
-        }
-        index->resetFh( retfh );
         if (droppings_were_truncd) {
             // this means that they were truncd to 0 offset
             index->resetPhysicalOffsets();
         }
         Util::MutexUnlock( &index_mux, __FUNCTION__ );
     }
-    // then the data fds
+    // then the data fhs
     for( pids_itr = fhs.begin(); pids_itr != fhs.end(); pids_itr++ ) {
-        paths_itr = paths.find( pids_itr->second.fh );
-        if ( paths_itr == paths.end() ) {
-            return -ENOENT;
-        }
-        string datapath = paths_itr->second;
-        /* note: this uses subdirback from object */
-        if ( (ret = closeFh( pids_itr->second.fh )) != 0 ) {
-            return ret; 
-        }
-        /* note: this uses subdirback from object */
-        pids_itr->second.fh = openFile( datapath, mode, ret );
-        if ( pids_itr->second.fh == NULL ) {
-            return ret; 
+        ofh = &pids_itr->second;
+        string unused;
+        // handle ByteRange data file first
+        if ( (retfh = restore_helper(ofh->sh_fh, &unused)) == NULL ){
+            return ret;
+        } 
+        ofh->sh_fh = retfh;
+        // then SimpleFormula data files
+        WF_FH_ITR fh_itr;
+        for(fh_itr = ofh->sf_fhs.begin(); fh_itr != ofh->sf_fhs.end();
+            fh_itr ++){
+            if ( (retfh = restore_helper(*fh_itr, &unused)) == NULL ){
+                return ret;
+            }
+            *fh_itr = retfh;
         }
     }
     // normally we return ret at the bottom of our functions but this

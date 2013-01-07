@@ -2,8 +2,6 @@
 /*
  *   $Id: ad_plfs.c,v 1.1 2010/11/29 19:59:01 adamm Exp $
  *
- *   Copyright (C) 2001 University of Chicago.
- *   See COPYRIGHT notice in top-level directory.
  */
 
 #include "ad_plfs.h"
@@ -110,8 +108,8 @@ int ad_plfs_hints(ADIO_File fd, int rank, char *hint)
 void malloc_check(void *test_me,int rank)
 {
     if(!test_me) {
-        plfs_debug("Rank %d failed a malloc check\n");
-        MPI_Abort(MPI_COMM_WORLD,MPI_ERR_IO);
+        plfs_debug("Rank %d failed a malloc check\n", rank);
+        MPI_Abort(MPI_COMM_WORLD,MPI_ERR_NO_MEM);
     }
 }
 
@@ -179,8 +177,8 @@ int plfs_getattr(Plfs_fd *fd, const char *path, struct stat *st, int size_only)
     return -1; /* never gets here */
 }
 
-size_t plfs_gethostdir_id(char *)  __attribute__ ((weak));
-size_t plfs_gethostdir_id(char *id)
+size_t plfs_gethostdir_id(int)  __attribute__ ((weak));
+size_t plfs_gethostdir_id(int id)
 {
     no_link_abort();
     return 1; /* never gets here */
@@ -292,10 +290,10 @@ int plfs_unlink( const char *path )
     return -1; /* never gets here */
 }
 
-ssize_t plfs_write( Plfs_fd *, const char *, size_t, off_t, pid_t )  
-    __attribute__ ((weak));
-ssize_t plfs_write( Plfs_fd *fd,
-    const char *buf, size_t size, off_t off, pid_t pid)
+ssize_t plfs_write( Plfs_fd *, const char *, size_t, off_t, pid_t,
+      Plfs_write_opt* )  __attribute__ ((weak));
+ssize_t plfs_write( Plfs_fd *fd, const char *buf, size_t size, 
+      off_t off, pid_t pid, Plfs_write_opt *write_opt)
 {
     no_link_abort();
     return -1; /* never gets here */

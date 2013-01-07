@@ -266,6 +266,35 @@ find_all_expansions(const char *logical, vector<plfs_pathback> &containers)
     PLFS_EXIT(ret);
 }
 
+// this is a helper routine that takes a logical path and figures out a
+// bunch of derived paths from it
+int
+findContainerPaths(const string& logical, ContainerPaths& paths, int pid)
+{
+    ExpansionInfo exp_info;
+    // set up our paths.  expansion errors shouldn't happen but check anyway
+    // set up shadow first
+    paths.shadow = expandPath(logical,&exp_info,EXPAND_SHADOW,-1,0);
+    if (exp_info.Errno) {
+        return (exp_info.Errno);
+    }
+    paths.shadow_hostdir = Container::getHostDirPath(paths.shadow,pid,
+                           PERM_SUBDIR);
+    paths.hostdir=paths.shadow_hostdir.substr(paths.shadow.size(),string::npos);
+    paths.shadow_backend = get_backend(exp_info);
+    paths.shadowback = exp_info.backend;
+    // now set up canonical
+    paths.canonical = expandPath(logical,&exp_info,EXPAND_CANONICAL,-1,0);
+    if (exp_info.Errno) {
+        return (exp_info.Errno);
+    }
+    paths.canonical_backend = get_backend(exp_info);
+    paths.canonical_hostdir=Container::getHostDirPath(paths.canonical,pid,
+                            PERM_SUBDIR);
+    paths.canonicalback = exp_info.backend;
+    return 0;  // no expansion errors.  All paths derived and returned
+}
+
 // helper routine for plfs_dump_config
 // changes ret to new error or leaves it alone
 int
@@ -1718,3 +1747,4 @@ plfs_phys_backlookup(const char *phys, PlfsMount *pmnt,
 
     return(rv);
 }
+

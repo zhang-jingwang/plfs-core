@@ -10,6 +10,15 @@
 #define DROPPINGPREFIX "dropping."
 #define DATAPREFIX     DROPPINGPREFIX"data."
 #define INDEXPREFIX    DROPPINGPREFIX"index."
+
+#define BYTERANGEDATAPREFIX DATAPREFIX"range."
+#define BYTERANGEINDEXPREFIX INDEXPREFIX"range."
+
+#define FORMULADATAPREFIX DATAPREFIX"formula."
+#define FORMULAINDEXPREFIX INDEXPREFIX"formula."
+
+// METALINKPREFIX is only for deep metalink entry usage
+#define METALINKPREFIX "metalink."
 #define TMPPREFIX      "tmp."
 #define METADIR        "meta"         // where to stash shortcut metadata
 #define XATTRSDIR      "xattrs"       // where to store xattrs

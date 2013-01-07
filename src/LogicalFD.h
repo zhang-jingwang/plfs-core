@@ -15,7 +15,7 @@ class Plfs_fd
         virtual int close(pid_t, uid_t, int flags, Plfs_close_opt *) = 0;
         virtual ssize_t read(char *buf, size_t size, off_t offset) = 0;
         virtual ssize_t write(const char *buf, size_t size, off_t offset,
-                              pid_t pid) = 0;
+                              pid_t pid, Plfs_write_opt*) = 0;
         virtual int sync() = 0;
         virtual int sync(pid_t pid) = 0;
         virtual int trunc(const char *path, off_t offset) = 0;

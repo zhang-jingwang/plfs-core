@@ -84,11 +84,13 @@ class Util
         static string expandPath( string path, string hostname );
         static void addTime( string, double, bool );
         static char *hostname();
+#if 0
         static int traverseDirectoryTree(const char *physical,
                                          struct plfs_backend *back,
                                          vector<plfs_pathback> &files,
                                          vector<plfs_pathback> &dirs,
                                          vector<plfs_pathback> &links);
+#endif
 
     private:
         static void addBytes( string, size_t );

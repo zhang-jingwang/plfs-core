@@ -239,6 +239,11 @@ void Util::addBytes( string function, size_t size )
     }
 }
 
+// this function is very similar with Container::collectContents()
+// just drop this function so we can just maintain one copy of
+// code gathering the contents of a container
+
+#if 0
 // just reads through a directory and returns all descendants
 // useful for gathering the contents of a container
 int
@@ -288,6 +293,7 @@ Util::traverseDirectoryTree(const char *path, struct plfs_backend *back,
     }
     EXIT_UTIL;
 }
+#endif
 
 pthread_mutex_t time_mux;
 void Util::addTime( string function, double elapsed, bool error )

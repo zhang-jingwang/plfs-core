@@ -159,7 +159,8 @@ PlfsConf *get_plfs_conf( );
 
 PlfsMount *find_mount_point(PlfsConf *pconf, const string& path, bool& found);
 PlfsMount *find_mount_point_using_tokens(PlfsConf *, vector <string> &, bool&);
-int find_all_expansions(const char *logical,vector<plfs_pathback> &containers);
+int find_all_expansions(const char *logical, vector<plfs_pathback> &containers);
+int findContainerPaths(const string& logical, ContainerPaths& paths, int pid);
 
 // a helper function that expands %t, %p, %h in mlog file name
 string expand_macros(const char *target);

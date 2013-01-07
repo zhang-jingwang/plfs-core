@@ -58,7 +58,7 @@ int container_unlink( const char *path );
 int container_utime( const char *path, struct utimbuf *ut );
 
 ssize_t container_write( Container_OpenFile *, const char *, size_t, off_t,
-                         pid_t );
+                         pid_t, Plfs_write_opt* );
 
 int container_flatten_index(Container_OpenFile *fd, const char *logical);
 #endif

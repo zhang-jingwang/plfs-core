@@ -40,9 +40,10 @@ Container_fd::rename(const char *path, struct plfs_backend *b) {
 }
 
 ssize_t
-Container_fd::write(const char *buf, size_t size, off_t offset, pid_t pid)
+Container_fd::write(const char *buf, size_t size, off_t offset, pid_t pid,
+                    Plfs_write_opt *write_opt)
 {
-    return container_write(fd, buf, size, offset, pid);
+    return container_write(fd, buf, size, offset, pid, write_opt);
 }
 
 int

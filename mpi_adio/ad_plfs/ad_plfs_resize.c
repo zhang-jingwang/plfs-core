@@ -2,8 +2,6 @@
 /*
  *   $Id: ad_plfs_resize.c,v 1.1 2010/11/29 19:59:01 adamm Exp $
  *
- *   Copyright (C) 1997 University of Chicago.
- *   See COPYRIGHT notice in top-level directory.
  */
 
 #include "ad_plfs.h"
@@ -87,6 +85,7 @@ void ADIOI_PLFS_Resize(ADIO_File fd, ADIO_Offset size, int *error_code)
         open_opt.index_stream = NULL;
         open_opt.reopen = 1;
         open_opt.buffer_index = 0;
+        open_opt.metalink_timestamp = plfs_wtime();
         if (flatten != -1) {
             open_opt.buffer_index = flatten;
         }

@@ -103,7 +103,7 @@ PlfsUnit::readWriteTest() {
     ret = plfs_open(&fd, pathname, O_CREAT | O_RDONLY, pid, 0666, NULL);
     CPPUNIT_ASSERT_EQUAL(0, ret);
     CPPUNIT_ASSERT(fd);
-    ret = plfs_write(fd, "HELLO WORLD.", 13, 0, pid);
+    ret = plfs_write(fd, "HELLO WORLD.", 13, 0, pid, NULL);
     CPPUNIT_ASSERT_EQUAL(-EBADF, ret);
     ret = plfs_close(fd, pid, uid, 0, NULL);
     CPPUNIT_ASSERT_EQUAL(0, ret);
@@ -116,7 +116,7 @@ PlfsUnit::readWriteTest() {
 	char rbuf[13];
 	for (pid_t fpid = 0; fpid < 10; fpid ++) {
 	    off_t offset=rand();
-	    ret = plfs_write(fd, "HELLO WORLD.", 13, offset, fpid);
+	    ret = plfs_write(fd, "HELLO WORLD.", 13, offset, fpid, NULL);
 	    CPPUNIT_ASSERT_EQUAL(13, ret);
 	    ret = plfs_sync(fd);
 	    CPPUNIT_ASSERT_EQUAL(0, ret);
@@ -135,7 +135,7 @@ PlfsUnit::readWriteTest() {
             ret = plfs_open(&fd, pathname, O_CREAT | O_RDWR, fpid, 0666, NULL);
             CPPUNIT_ASSERT_EQUAL(0, ret);
             CPPUNIT_ASSERT(fd);
-	    ret = plfs_write(fd, "HELLO WORLD.", 13, offset, fpid);
+	    ret = plfs_write(fd, "HELLO WORLD.", 13, offset, fpid, NULL);
 	    CPPUNIT_ASSERT_EQUAL(13, ret);
 	    ret = plfs_sync(fd);
 	    CPPUNIT_ASSERT_EQUAL(0, ret);
@@ -379,7 +379,7 @@ PlfsUnit::truncateTest() {
 
     ret = plfs_open(&fd, pathname, O_CREAT | O_RDWR, pid, 0666, NULL);
     CPPUNIT_ASSERT_EQUAL(0, ret);
-    ret = plfs_write(fd, "SIMPLE_TRUNCATE_TEST", 21, 0, pid);
+    ret = plfs_write(fd, "SIMPLE_TRUNCATE_TEST", 21, 0, pid, NULL);
     CPPUNIT_ASSERT_EQUAL(21, ret);
     ret = plfs_trunc(fd, pathname, 15, true);
     CPPUNIT_ASSERT_EQUAL(0, ret);

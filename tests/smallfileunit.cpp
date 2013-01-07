@@ -193,7 +193,7 @@ public:
 
 void
 verifyIndexOperation(const IndexOperation &op) {
-    struct IndexEntry index;
+    struct SMFIndexEntry index;
     ssize_t len;
 
     len = op.fh->Read(&index, sizeof index);

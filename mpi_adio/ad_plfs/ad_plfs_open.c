@@ -2,8 +2,6 @@
 /*
  *   $Id: ad_plfs_open.c,v 1.1 2010/11/29 19:59:01 adamm Exp $
  *
- *   Copyright (C) 1997 University of Chicago.
- *   See COPYRIGHT notice in top-level directory.
  */
 #include "ad_plfs.h"
 #include "zlib.h"
@@ -56,6 +54,13 @@ typedef struct {
 }Bit;
 Bit bitmap[BIT_ARRAY_LENGTH]={0};
 */
+
+// enable_pidx is global variable that parsed at open time and used
+// for each write operation. The reason why not parsing at write time is that
+// parsing has internel malloc/free that might slow down the critical path
+// This is a switch for doing ADIO index compression. It's disabled by default
+// and app can enable it by passing hint "plfs_enable_adio_pidx=1"
+int enable_pidx = 0;
 
 // a bunch of helper macros we added when we had a really hard time debugging
 // this file.  We were confused by ADIO calling rank 0 initially on the create
@@ -297,7 +302,7 @@ void ADIOI_PLFS_Open(ADIO_File fd, int *error_code)
 int adplfs_open_helper(ADIO_File fd,Plfs_fd **pfd,int *error_code,int perm,
                 int amode,int rank)
 {
-    int err = 0, disabl_broadcast=0, compress_flag=0,close_flatten=0;
+    int err = 0, ret, disabl_broadcast=0, compress_flag=0,close_flatten=0;
     int parallel_index_read=1;
     static char myname[] = "ADIOI_PLFS_OPENHELPER";
     Plfs_open_opt open_opt;
@@ -307,12 +312,25 @@ int adplfs_open_helper(ADIO_File fd,Plfs_fd **pfd,int *error_code,int perm,
     // get a hostdir comm to use to serialize write a bit
     write_mode = (fd->access_mode==ADIO_RDONLY?0:1);
     if (write_mode) {
-        size_t color = plfs_gethostdir_id(plfs_gethostname());
+        // rank0 of fd->comm broadcast a timestamp to all
+        // so all procs can use same timestamp for possible metalink creation
+        double timestamp;
+        if (rank==0){
+            timestamp = plfs_wtime();
+        }
+        MPIBCAST(&timestamp,1,MPI_DOUBLE,0,fd->comm);
+        open_opt.metalink_timestamp = timestamp;
+
+        // split fd->comm by hostname
+        size_t color = plfs_gethostdir_id(plfs_gethashval(plfs_gethostname()));
         err = MPI_Comm_split(fd->comm,color,rank,&hostdir_comm);
         if(err!=MPI_SUCCESS) {
             return err;
         }
         MPI_Comm_rank(hostdir_comm,&hostdir_rank);
+
+        // check if app enables ADIO index compression
+        enable_pidx = ad_plfs_hints(fd,rank,"plfs_enable_adio_pidx");
     }
     // get specified behavior from hints
     if (fd->access_mode==ADIO_RDONLY) {

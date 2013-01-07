@@ -32,7 +32,7 @@ struct __attribute__ ((__packed__)) NameEntryHeader {
     char filename[0];
 };
 
-struct __attribute__ ((__packed__)) IndexEntry {
+struct __attribute__ ((__packed__)) SMFIndexEntry {
     FileID fid;
     uint64_t offset;
     uint64_t length;

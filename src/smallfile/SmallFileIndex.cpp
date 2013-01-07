@@ -21,7 +21,7 @@ public:
     virtual int pop_front();
 protected:
     /* Index file has fixed-length records */
-    virtual int record_size(void *unused) { return sizeof(struct IndexEntry);};
+    virtual int record_size(void *unused) { return sizeof(struct SMFIndexEntry);};
 private:
     index_mapping_t fid_did;
 };
@@ -35,20 +35,20 @@ IndexReader::IndexReader(plfs_pathback &fname, const index_mapping_t &meta,
 int
 IndexReader::pop_front() {
     int ret;
-    struct IndexEntry *entry;
+    struct SMFIndexEntry *entry;
 
     /* Skip all the index entries that don't belong to this file */
     do {
         ret = FileReader::pop_front();
-        entry = (struct IndexEntry *)FileReader::front();
+        entry = (struct SMFIndexEntry *)FileReader::front();
     } while (entry && entry->fid != fid_did.first);
     return ret;
 }
 
 static int
 index_compare_func(void *index1, void *index2) {
-    const struct IndexEntry *entry1 = (const struct IndexEntry *)index1;
-    const struct IndexEntry *entry2 = (const struct IndexEntry *)index2;
+    const struct SMFIndexEntry *entry1 = (const struct SMFIndexEntry *)index1;
+    const struct SMFIndexEntry *entry2 = (const struct SMFIndexEntry *)index2;
     if (entry1->timestamp < entry2->timestamp) return -1;
     if (entry1->timestamp > entry2->timestamp) return 1;
     return 0;
@@ -122,7 +122,7 @@ SmallFileIndex::init_data_source(void *init_para,
 
 int
 SmallFileIndex::merge_object(void *record, void *meta) {
-    const struct IndexEntry *entry = (const struct IndexEntry *)record;
+    const struct SMFIndexEntry *entry = (const struct SMFIndexEntry *)record;
     map<off_t, DataEntry>::iterator itr;
     int is_trunc;
     off_t the_end_of_entry = entry->offset + entry->length;
