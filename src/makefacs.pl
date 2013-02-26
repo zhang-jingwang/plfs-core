@@ -44,6 +44,7 @@
      "FUSE"     => "FUSE",
      "MPI"      => "MPI",
      "POSIXIO"  => "POSIXIO",
+     "FUSEIO"   => "FUSEIO",
 );
 
 @mloglvls = (
