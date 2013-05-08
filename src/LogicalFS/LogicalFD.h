@@ -3,6 +3,7 @@
 
 #include "plfs.h"
 #include <string>
+#include <errno.h>
 using namespace std;
 
 class Plfs_fd
@@ -16,6 +17,17 @@ class Plfs_fd
         virtual plfs_error_t read(char *buf, size_t size, off_t offset, ssize_t *bytes_read) = 0;
         virtual plfs_error_t write(const char *buf, size_t size, off_t offset,
                               pid_t pid, ssize_t *bytes_written) = 0;
+	virtual plfs_error_t readx(struct iovec *iov, int iovcnt,
+                                   plfs_xvec *xvec, int xvcnt, ssize_t *rbytes)
+	{
+	    return -ENOSYS;
+	}
+	virtual plfs_error_t writex(struct iovec *iov, int iovcnt,
+                                    plfs_xvec *xvec, int xvcnt,
+                                    pid_t pid, ssize_t *wbytes)
+	{
+	    return -ENOSYS;
+	}
         virtual plfs_error_t sync() = 0;
         virtual plfs_error_t sync(pid_t pid) = 0;
         /* XXX: containerfs is keeping us from removing ppip in trunc */

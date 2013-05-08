@@ -522,6 +522,20 @@ Container_fd::write(const char *buf, size_t size, off_t offset, pid_t pid,
 }
 
 plfs_error_t
+Container_fd::readx(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
+                    ssize_t *bytes_read)
+{
+    return container_readx(fd, iov, iovcnt, xvec, xvcnt, bytes_read);
+}
+
+plfs_error_t
+Container_fd::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
+		     pid_t pid, ssize_t *bytes_written)
+{
+    return container_writex(fd, iov, iovcnt, xvec, xvcnt, pid, bytes_written);
+}
+
+plfs_error_t
 Container_fd::sync()
 {
     return(this->fd->getWritefile() ?

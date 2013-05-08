@@ -148,6 +148,16 @@ PosixIOSHandle::Write(const void* buf, size_t len, ssize_t *bytes_written) {
 }
 
 plfs_error_t
+PosixIOSHandle::Writev(struct iovec *iov, int iovcnt, ssize_t *bytes_written) {
+    POSIX_IO_ENTER(this->bpath.c_str());
+    ssize_t rv;
+    rv = writev(this->fd, iov, iovcnt);
+    POSIX_IO_EXIT(this->bpath.c_str(),rv);
+    *bytes_written = rv;
+    return(get_err(rv));
+}
+
+plfs_error_t
 PosixIOSDirHandle::Closedir() {
     POSIX_IO_ENTER(this->bpath.c_str());
     int rv;

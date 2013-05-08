@@ -3,11 +3,13 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
 #include <utime.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include "plfs_error.h"
+#include <sys/uio.h> /* for writev */
 
 class IOStore;
 class IOSHandle;
@@ -75,6 +77,9 @@ class IOSHandle {
     virtual plfs_error_t ReleaseDataBuf(void *buf, size_t length)=0;
     virtual plfs_error_t Size(off_t *ret_offset)=0;
     virtual plfs_error_t Write(const void *buf, size_t nbytes, ssize_t *bytes_written)=0;
+    virtual plfs_error_t Writev(struct iovec *iov, int iovcnt, ssize_t *bytes_written){
+	return -ENOSYS;
+    }
     virtual ~IOSHandle() { }
 };
 

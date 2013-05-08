@@ -4,6 +4,7 @@
 #include "COPYRIGHT.h"
 #include <map>
 using namespace std;
+#include "plfs.h"
 #include "Util.h"
 #include "Index.h"
 #include "Metadata.h"
@@ -53,6 +54,8 @@ class WriteFile : public Metadata
         plfs_error_t extend( off_t );
 
         plfs_error_t write( const char *, size_t, off_t, pid_t, ssize_t * );
+	plfs_error_t writex(struct iovec *, int, plfs_xvec *, int, pid_t,
+                            ssize_t *);
 
         plfs_error_t sync( );
         plfs_error_t sync( pid_t pid );
@@ -83,6 +86,7 @@ class WriteFile : public Metadata
         plfs_error_t prepareForWrite( ) {
             return prepareForWrite( open_pid );
         }
+	int writeIndex(off_t, ssize_t, double, double, pid_t);
 
         pid_t open_pid;
         /*

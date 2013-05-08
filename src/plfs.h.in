@@ -6,6 +6,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/uio.h>
 #include <utime.h>
 #include "plfs_error.h"
 
@@ -54,6 +55,12 @@ typedef void *Plfs_dirp;
         plfs_interface pinter;
         size_t num_procs;
     } Plfs_close_opt;
+
+    /* used for writex/readx */
+    typedef struct {
+	off_t offset;
+	size_t len;
+    } plfs_xvec;
 
     /*
        All PLFS function declarations in this file are in alphabetical order.
@@ -141,6 +148,8 @@ typedef void *Plfs_dirp;
     plfs_error_t plfs_read( Plfs_fd *, char *buf, size_t size, off_t offset,
                             ssize_t *bytes_read );
 
+    ssize_t plfs_readx( Plfs_fd *, struct iovec *, int, plfs_xvec *, int);
+
     /* plfs_readdir
      * the void * needs to be a pointer to a vector<string> but void * is
      * used here so it compiles with C code
@@ -184,6 +193,11 @@ typedef void *Plfs_dirp;
 
     plfs_error_t plfs_write( Plfs_fd *, const char *, size_t, off_t, pid_t,
                              ssize_t *bytes_written );
+
+    // total length of memory segments in iovec list should be less than or
+    // equal to total length of all plfs_xvecs.
+    ssize_t plfs_writex ( Plfs_fd *, struct iovec *, int, plfs_xvec *, int,
+			  pid_t);
 
     // something needed for MPI-IO to know to avoid optimizations unless
     // in container mode

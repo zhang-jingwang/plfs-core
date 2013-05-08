@@ -68,6 +68,8 @@ class Container_fd : public Plfs_fd
         plfs_error_t renamefd(struct plfs_physpathinfo *ppip_to);
         plfs_error_t write(const char *buf, size_t size, off_t offset, pid_t pid,
                            ssize_t *bytes_written);
+	plfs_error_t readx(struct iovec *, int, plfs_xvec *, int, ssize_t *);
+	plfs_error_t writex(struct iovec *, int, plfs_xvec *, int, pid_t, ssize_t *);
         plfs_error_t sync();
         plfs_error_t sync(pid_t pid);
         plfs_error_t trunc(off_t offset, struct plfs_physpathinfo *ppip);

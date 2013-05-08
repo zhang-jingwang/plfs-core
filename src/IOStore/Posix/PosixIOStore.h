@@ -24,6 +24,7 @@ class PosixIOSHandle: public IOSHandle {
     plfs_error_t ReleaseDataBuf(void *buf, size_t length);
     plfs_error_t Size(off_t *ret_offset);
     plfs_error_t Write(const void* buf, size_t len, ssize_t *bytes_written);
+    plfs_error_t Writev(struct iovec *iov, int iovcnt, ssize_t *bytes_written);
     
  private:
     plfs_error_t Close();

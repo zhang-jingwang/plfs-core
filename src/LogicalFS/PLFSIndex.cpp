@@ -72,7 +72,9 @@ find_read_tasks(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
                         lasttask.chunk_offset + (off_t)lasttask.length ==
                         task.chunk_offset &&
                         lasttask.logical_offset + (off_t)lasttask.length ==
-                        task.logical_offset ) {
+			task.logical_offset &&
+			lasttask.buf + lasttask.length ==
+			task.buf) {
                     // merge last into this and pop last
                     oss << chunk++ << ".1) Merge with last index entry offset "
                         << lasttask.chunk_offset << " len "
@@ -191,35 +193,14 @@ reader_thread( void *va )
     pthread_exit((void *) ret);
 }
 
-// @param bytes_read returns bytes read
-// returns PLFS_SUCCESS or PLFS_E*
-// TODO: rename this to container_reader or something better
+// using ThreadPool to finish each ReadTask for performance
+// returns -err or bytes read
 plfs_error_t
-plfs_reader(void * /* pfd */, char *buf, size_t size, off_t offset,
-            PLFSIndex *index, ssize_t *bytes_read)
+parallize_reader(list<ReadTask> &tasks, PLFSIndex *index, ssize_t *bytes_read)
 {
     ssize_t total = 0;  // no bytes read so far
     plfs_error_t plfs_error = PLFS_SUCCESS;  // no error seen so far
     ssize_t ret = 0;    // for holding temporary return values
-    list<ReadTask> tasks;   // a container of read tasks in case the logical
-    // read spans multiple chunks so we can thread them
-    // you might think that this can fail because this call is not in a mutex
-    // so you might think it's possible that some other thread in a close is
-    // changing ref counts right now but it's OK that the reference count is
-    // off here since the only way that it could be off is if someone else
-    // removes their handle, but no-one can remove the handle being used here
-    // except this thread which can't remove it now since it's using it now
-    // plfs_reference_count(pfd);
-    index->lock(__FUNCTION__); // in case another FUSE thread in here
-    plfs_error_t plfs_ret = find_read_tasks(index,&tasks,size,offset,buf);
-    index->unlock(__FUNCTION__); // in case another FUSE thread in here
-    // let's leave early if possible to make remaining code cleaner by
-    // not worrying about these conditions
-    // tasks is empty for a zero length file or an EOF
-    if ( plfs_ret != PLFS_SUCCESS || tasks.empty() ) {
-        *bytes_read = 0;
-        return(plfs_ret);
-    }
     PlfsConf *pconf = get_plfs_conf();
     if ( tasks.size() > 1 && pconf->threadpool_size > 1 ) {
         ReaderArgs args;
@@ -227,9 +208,8 @@ plfs_reader(void * /* pfd */, char *buf, size_t size, off_t offset,
         args.tasks = &tasks;
         pthread_mutex_init( &(args.mux), NULL );
         size_t num_threads = min((size_t)pconf->threadpool_size,tasks.size());
-        mlog(INT_DCOMMON, "plfs_reader %lu THREADS to %ld",
-             (unsigned long)num_threads,
-             (unsigned long)offset);
+	mlog(INT_DCOMMON, "%s %lu THREADS", __FUNCTION__,
+		(unsigned long)num_threads);
         ThreadPool threadpool(num_threads,reader_thread, (void *)&args);
         plfs_error = threadpool.threadError();   // returns PLFS_E*
         if ( plfs_error != PLFS_SUCCESS ) {
@@ -262,4 +242,112 @@ plfs_reader(void * /* pfd */, char *buf, size_t size, off_t offset,
     }
     *bytes_read = total;
     return plfs_error;
+}
+
+// @param bytes_read returns bytes read
+// returns PLFS_SUCCESS or PLFS_E*
+// TODO: rename this to container_reader or something better
+plfs_error_t
+plfs_reader(void * /* pfd */, char *buf, size_t size, off_t offset,
+            PLFSIndex *index, ssize_t *bytes_read)
+{
+    size_t ret = 0;    // for holding temporary return values
+    list<ReadTask> tasks;   // a container of read tasks in case the logical
+    // read spans multiple chunks so we can thread them
+    // you might think that this can fail because this call is not in a mutex
+    // so you might think it's possible that some other thread in a close is
+    // changing ref counts right now but it's OK that the reference count is
+    // off here since the only way that it could be off is if someone else
+    // removes their handle, but no-one can remove the handle being used here
+    // except this thread which can't remove it now since it's using it now
+    // plfs_reference_count(pfd);
+    index->lock(__FUNCTION__); // in case another FUSE thread in here
+    ret = find_read_tasks(index,&tasks,size,offset,buf);
+    index->unlock(__FUNCTION__); // in case another FUSE thread in here
+    // let's leave early if possible to make remaining code cleaner by
+    // not worrying about these conditions
+    // tasks is empty for a zero length file or an EOF
+    if ( ret != 0 || tasks.empty() ) {
+	PLFS_EXIT(ret);
+    }
+
+    return parallize_reader(tasks, index, bytes_read);
+}
+
+// this is a helper function for reading file contents described by logical
+// ranges <xvec, xvcnt> into memory segments described by <iov, iovcnt>. Memory
+// segments and logical ranges are processed in array order.
+// each logical range may span multiple data chunks, so this function just find
+// out all read units first and then use multi-thread for performance.
+// returns -err or bytes read
+plfs_error_t
+plfs_xreader(void *pfd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
+	     int xvcnt, PLFSIndex *index, ssize_t *bytes_read)
+{
+    int i, j;
+    size_t ret = 0, remaining, bytes_remaining;
+    off_t pos; // logical file offset reading from
+    char *base = NULL; // memory buffer pointer reading to
+    size_t size; // length of read operation
+    size_t iovLen = 0; // total size of memory segments
+    size_t xvecLen = 0; // total size of logical ranges
+    list<ReadTask> tasks;
+
+    // calculate the total size of memory segments and logical ranges
+    for(i=0; i<iovcnt; i++){
+	iovLen += iov[i].iov_len;
+    }
+    for(j=0; j<xvcnt; j++){
+	xvecLen += xvec[j].len;
+    }
+    if(iovLen == 0 || xvecLen == 0) PLFS_EXIT(ret);
+
+    i = j = 0; // indicators of which iovec or plfs_xvec we are processing now
+    pos = xvec[0].offset; // initialize to first plfs_xvec's starting offset
+    base = (char *)iov[0].iov_base; // points to first iovec's starting address
+    size = min(iov[0].iov_len, xvec[0].len);
+    bytes_remaining = min(iovLen, xvecLen); // read ends when bytes read meet
+					    // iovLen or xvecLen
+
+    index->lock(__FUNCTION__); // in case another FUSE thread in here
+    /* build read tasks */
+    while(bytes_remaining > 0){
+	ret = find_read_tasks(index, &tasks, size, pos, base);
+
+	bytes_remaining -= size;
+	if(base + size < (char *)iov[i].iov_base + iov[i].iov_len){
+	    /* not done for this iovec yet */
+	    j ++;
+	    if (j >= xvcnt) break;
+	    base += size;
+	    pos = xvec[j].offset;
+	    remaining = ((char *)iov[i].iov_base + iov[i].iov_len) - base;
+	    size = min(remaining, xvec[j].len);
+	} else {
+	    /* done with current iovec */
+	    i ++;
+	    if( i >= iovcnt) break;
+	    base = (char *)iov[i].iov_base;
+	    pos += size;
+	    remaining = xvec[j].offset + xvec[j].len - pos;
+	    if(remaining == 0){
+		/* also reached end of current plfs_xvec */
+		j ++;
+		if(j >= xvcnt) break;
+		pos = xvec[j].offset;
+		remaining = xvec[j].len;
+	    }
+	    size = min(iov[i].iov_len, remaining);
+	}
+    }
+    index->unlock(__FUNCTION__); // in case another FUSE thread in here
+
+    // let's leave early if possible to make remaining code cleaner by
+    // not worrying about these conditions
+    // tasks is empty for a zero length file or an EOF
+    if ( ret != 0 || tasks.empty() ) {
+	PLFS_EXIT(ret);
+    }
+
+    return parallize_reader(tasks, index, bytes_read);
 }
