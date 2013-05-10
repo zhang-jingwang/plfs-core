@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "plfs_private.h"
 #include "ThreadPool.h"
 #include "mlog_oss.h"
@@ -23,11 +24,93 @@ typedef struct {
     pthread_mutex_t mux;    // to lock the queue
 } ReaderArgs;
 
+
+// free the shard list produced by build_shard_list
+int
+free_shard_list(plfs_shard *head, int loc_required)
+{
+    plfs_shard *shard;
+    while(head){
+	shard = head;
+	head = head->next;
+	if(loc_required) free(shard->location);
+	delete shard;
+    }
+    return 0;
+}
+
+// a helper routine to convert a list of read tasks into logical valid ranges.
+// merge logical contiguous read tasks depending on loc_required.
+// if loc_required is setting to 0, then try to merge across different devices.
+// Or try to merge within each device.
+// return 0 or -err
+int
+build_shrad_list(list<ReadTask> *tasks, plfs_shard **head,
+		 int loc_required)
+{
+    int ret = 0;
+    list<ReadTask>::iterator itr;
+    plfs_shard *shard = NULL, *current = NULL;
+    struct plfs_backend *backend; //retrieve back backend device by phsical path
+    string bpath;
+
+    if( tasks->empty() ) return ret;
+
+    *head = NULL;
+    for(itr=tasks->begin(); itr!=tasks->end(); itr++){
+	if ( itr->hole ) continue;
+	shard = new plfs_shard;
+	if( shard == NULL ){
+	    ret = -ENOMEM;
+	    break;
+	}
+	shard->xvec.offset = itr->logical_offset;
+	shard->xvec.len = itr->length;
+	shard->location = NULL;
+	shard->next = NULL;
+	// retrieve back the backend device
+	ret = plfs_phys_backlookup(itr->path.c_str(), NULL, &backend, &bpath);
+	if(ret != 0){
+	    mlog(INT_CRIT, "%s backlookup failed for %s\n",
+		    __FUNCTION__, itr->path.c_str());
+	    break;
+	}
+	if(loc_required){
+	    shard->location = Util::Strdup(backend->bmpoint.c_str());
+	}
+	if ( *head == NULL ){
+	    *head = shard;
+	    current = *head;
+	} else {
+	    // this is how to merge different read tasks, across or within
+	    // devices
+	    bool can_merge = loc_required?
+		(current->xvec.offset+(off_t)current->xvec.len ==
+		 shard->xvec.offset
+		 && strcmp(current->location, shard->location) == 0):
+		(current->xvec.offset+(off_t)current->xvec.len ==
+		 shard->xvec.offset);
+	    if( can_merge ) {
+		current->xvec.len += shard->xvec.len;
+		delete shard;
+	    } else {
+		current->next = shard;
+		current = shard;
+	    }
+	}
+    }
+
+    if(ret != 0) free_shard_list(*head, loc_required);
+
+    return ret;
+}
+
 // a helper routine for read to allow it to be multi-threaded when a single
 // logical read spans multiple chunks
 // tasks needs to be a list and not a queue since sometimes it does pop_back
 // here in order to consolidate sequential reads (which can happen if the
 // index is not buffered on the writes)
+// don't associate each range with buf segment if passed buf as NULL
 plfs_error_t
 find_read_tasks(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
                 off_t offset, char *buf)
@@ -50,8 +133,8 @@ find_read_tasks(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
         // make sure it's good
         if ( ret == PLFS_SUCCESS ) {
             task.length = min(bytes_remaining,(ssize_t)task.length);
-            task.buf = &(buf[bytes_traversed]);
-            task.logical_offset = offset + bytes_traversed;
+	    if( buf != NULL ) task.buf = &(buf[bytes_traversed]);
+	    task.logical_offset = offset + bytes_traversed;
             bytes_remaining -= task.length;
             bytes_traversed += task.length;
         }
@@ -70,12 +153,13 @@ find_read_tasks(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
                 if ( task.fh != NULL && lasttask.fh == task.fh &&
                         lasttask.hole == task.hole &&
                         lasttask.chunk_offset + (off_t)lasttask.length ==
-                        task.chunk_offset &&
-                        lasttask.logical_offset + (off_t)lasttask.length ==
+			task.chunk_offset &&
+			lasttask.logical_offset + (off_t)lasttask.length ==
 			task.logical_offset &&
+			buf != NULL &&
 			lasttask.buf + lasttask.length ==
 			task.buf) {
-                    // merge last into this and pop last
+		    // merge last into this and pop last
                     oss << chunk++ << ".1) Merge with last index entry offset "
                         << lasttask.chunk_offset << " len "
                         << lasttask.length << " fh " << lasttask.fh
@@ -83,6 +167,7 @@ find_read_tasks(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
                     task.chunk_offset = lasttask.chunk_offset;
                     task.length += lasttask.length;
                     task.buf = lasttask.buf;
+		    task.logical_offset = lasttask.logical_offset;
                     tasks->pop_back();
                 }
             }
@@ -94,6 +179,29 @@ find_read_tasks(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
     } while(bytes_remaining && ret == PLFS_SUCCESS && task.length);
     return(ret);
 }
+
+/* ret 0 or -err */
+int
+plfs_shard_builder(PLFSIndex *index, off_t offset, size_t size,
+		   int loc_required, plfs_shard **head)
+{
+    int ret;
+    list<ReadTask> tasks;   // a container of read tasks in case the logical
+
+    index->lock(__FUNCTION__); // in case another FUSE thread in here
+    // setting the last parameter to NULL means it doesn't associate buf segment
+    // with each read task
+    ret = find_read_tasks(index,&tasks,size,offset, NULL);
+    index->unlock(__FUNCTION__); // in case another FUSE thread in here
+
+    if( ret == 0 ){
+	// build shard list depending on whether location is required
+	ret = build_shrad_list(&tasks, head, loc_required);
+    }
+
+    return ret;
+}
+
 /* @param ret_readlen returns bytes read */
 /* ret PLFS_SUCCESS or PLFS_E* */
 plfs_error_t

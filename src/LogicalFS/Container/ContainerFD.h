@@ -77,6 +77,9 @@ class Container_fd : public Plfs_fd
         plfs_error_t getxattr(void *value, const char *key, size_t len);
         plfs_error_t setxattr(const void *value, const char *key, size_t len);
         plfs_error_t query(size_t *, size_t *, size_t *, bool *reopen);
+
+	plfs_error_t query_shard(off_t, size_t, plfs_shard **, int);
+	plfs_error_t free_shard(plfs_shard *shard, int loc_required);
         bool is_good();
 
         // Functions leaked to FUSE and ADIO:

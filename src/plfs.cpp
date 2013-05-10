@@ -354,6 +354,28 @@ plfs_query(Plfs_fd *fd, size_t *writers, size_t *readers,
 }
 
 plfs_error_t
+plfs_query_shard(Plfs_fd *fd, off_t offset, size_t size, plfs_shard **shard,
+		 int loc_required)
+{
+    mss::mlog_oss oss;
+    oss << fd->getPath() << " -> " <<offset << ", " << size;
+    debug_enter(__FUNCTION__,oss.str());
+    int ret = fd->query_shard(offset, size, shard, loc_required);
+    debug_exit(__FUNCTION__,oss.str(),ret);
+    return ret;
+}
+
+plfs_error_t
+plfs_free_shard(Plfs_fd *fd, plfs_shard *shard, int loc_required)
+{
+    mss::mlog_oss oss;
+    debug_enter(__FUNCTION__,oss.str());
+    int ret = fd->free_shard(shard, loc_required);
+    debug_exit(__FUNCTION__,oss.str(),ret);
+    return ret;
+}
+
+plfs_error_t
 plfs_read(Plfs_fd *fd, char *buf, size_t size, off_t offset, ssize_t *bytes_read)
 {
     mss::mlog_oss oss;

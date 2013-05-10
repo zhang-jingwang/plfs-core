@@ -743,6 +743,19 @@ Container_fd::query(size_t *writers, size_t *readers, size_t *bytes_written,
     return PLFS_SUCCESS;
 }
 
+int
+Container_fd::query_shard(off_t offset, size_t size, plfs_shard **shard,
+			  int loc_required)
+{
+    return container_query_shard(fd, offset, size, shard, loc_required);
+}
+
+int
+Container_fd::free_shard(plfs_shard *shard, int loc_required)
+{
+    return container_free_shard(shard, loc_required);
+}
+
 bool
 Container_fd::is_good()
 {

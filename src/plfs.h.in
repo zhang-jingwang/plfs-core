@@ -62,6 +62,12 @@ typedef void *Plfs_dirp;
 	size_t len;
     } plfs_xvec;
 
+    typedef struct plfs_shard{
+	plfs_xvec xvec;
+	char *location; // which backend it resides in
+	struct plfs_shard *next;
+    } plfs_shard;
+
     /*
        All PLFS function declarations in this file are in alphabetical order.
        Please retain this as edits are made.
@@ -147,6 +153,19 @@ typedef void *Plfs_dirp;
 
     plfs_error_t plfs_read( Plfs_fd *, char *buf, size_t size, off_t offset,
                             ssize_t *bytes_read );
+    /* query a plfs_fd about valid shards between <offset, size>
+     * User can retrive back loction info for each shard by setting loc_required
+     * to 1.
+     * */
+    plfs_error_t plfs_query_shard(Plfs_fd *fd, off_t offset, size_t size,
+                                  plfs_shard **shard, int loc_required);
+
+    /* free memory allocated in plfs_query_shard, these two calls must be used
+     * in pair.
+     */
+    plfs_error_t plfs_free_shard(Plfs_fd *fd, plfs_shard *shard,
+                                 int loc_required);
+
 
     ssize_t plfs_readx( Plfs_fd *, struct iovec *, int, plfs_xvec *, int);
 

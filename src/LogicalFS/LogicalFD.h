@@ -51,11 +51,21 @@ class Plfs_fd
         virtual plfs_error_t setxattr(const void *value, const char *key,
                              size_t len) = 0;
 
-        // a function called to rename an open file
-        // the caller must also call the FS rename separately
         // XXX: need this because we are caching paths in the Plfs_fd
         // for open files, so we need a way to update the paths
         virtual plfs_error_t renamefd(struct plfs_physpathinfo *ppip_to) = 0;
+        virtual plfs_error_t rename(const char *path, struct plfs_backend *b) = 0;
+
+	virtual plfs_error_t query_shard(off_t offset, size_t size, plfs_shard **shard,
+				int loc_required)
+	{
+	    return PLFS_ENOSYS;
+	}
+	virtual plfs_error_t free_shard(plfs_shard *shard, int loc_required)
+	{
+	    return PLFS_ENOSYS;
+	}
+
 };
 
 inline Plfs_fd::~Plfs_fd() {};
