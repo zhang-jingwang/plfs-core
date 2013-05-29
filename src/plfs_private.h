@@ -46,8 +46,9 @@ plfs_error_t plfs_resolvepath(const char *logical, struct plfs_physpathinfo *ppi
 
 /* plfs_init
     it just warms up the plfs structures used in expandPath
+    allows plfs_init to be called by C program (iod).
 */
-bool plfs_init();
+extern "C" bool plfs_init();
 bool plfs_conditional_init();
 char **plfs_mlogargs(int *mlargc, char **mlargv);
 char *plfs_mlogtag(char *newtag);

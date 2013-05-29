@@ -33,6 +33,8 @@
 @facs = (
 # names:
 #  abbreviated     long
+     "IOD"      => "IOD_generic",
+     "TRANS"    => "transaction",
      "PLFS"     => "plfs_misc",
      "INT"      => "internal",
      "CON"      => "container",
@@ -46,6 +48,8 @@
      "POSIXIO"  => "POSIXIO",
      "SMF"      => "small_file",
      "FUSEIO"   => "FUSEIO",
+     "DAOSIO"   => "DAOSIO",
+     "MDHIM"    => "MDHIM",
 );
 
 @mloglvls = (

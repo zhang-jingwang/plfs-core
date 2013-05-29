@@ -782,7 +782,8 @@ plfs_warm_path_resolution(PlfsConf *pconf) {
 }
 
 // this init's the library if it hasn't been done yet
-bool
+// allows plfs_init to be called by C program (iod).
+extern "C" bool
 plfs_init()
 {
     static pthread_mutex_t confmutex = PTHREAD_MUTEX_INITIALIZER;
