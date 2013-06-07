@@ -153,6 +153,17 @@ TruncateOp::ignore(string path)
     ignores.push_back(path);
 }
 
+UnlinkOp::UnlinkOp()
+{
+    // default behavior
+    this->recursive = 0;
+}
+
+UnlinkOp::UnlinkOp(int r)
+{
+    this->recursive = r;
+}
+
 /* return PLFS_SUCCESS or PLFS_E* */
 plfs_error_t
 UnlinkOp::do_op(const char *path, unsigned char isfile, IOStore *store)
@@ -160,33 +171,38 @@ UnlinkOp::do_op(const char *path, unsigned char isfile, IOStore *store)
     if (isfile==DT_REG || isfile==DT_LNK) {
         return store->Unlink(path);
     } else if (isfile==DT_DIR||isfile==DT_CONTAINER) {
-        return store->Rmdir(path);
+	if(recursive) {
+	    return op_r(path, isfile, store, true);
+	} else {
+	    return store->Rmdir(path);
+	}
     } else {
         return PLFS_ENOSYS;
     }
 }
 
+// operate on a directory or container which maybe not empty.
+//
+// setting parameter delTop to true means unlink the directory or container
+// itself represented by param \path after removing all its contents recursively
 plfs_error_t
-UnlinkOp::op_r(const char *path, unsigned char isfile, IOStore *store, bool d)
+UnlinkOp::op_r(const char *path, unsigned char isfile, IOStore *store,
+	       bool delTop)
 {
-    if (isfile==DT_REG || isfile==DT_LNK) {
-        return store->Unlink(path);
-    } else if (isfile==DT_DIR||isfile==DT_CONTAINER) {
-        map<string, unsigned char> names;
-        map<string, unsigned char>::iterator itr;
-        ReaddirOp readdirop(&names, NULL, true, true);
-        plfs_error_t ret = PLFS_SUCCESS;
+    assert(isfile==DT_DIR || isfile==DT_CONTAINER);
 
-        readdirop.op(path, isfile, store);
-        for (itr = names.begin(); itr != names.end(); itr++) {
-            ret = op_r(itr->first.c_str(), itr->second, store, true);
-            if (ret != PLFS_SUCCESS) return ret;
-        }
-        if (d) ret = store->Rmdir(path);
-        return ret;
-    } else {
-        return PLFS_ENOSYS;
+    map<string, unsigned char> names;
+    map<string, unsigned char>::iterator itr;
+    ReaddirOp readdirop(&names, NULL, true, true);
+    plfs_error_t ret = PLFS_SUCCESS;
+
+    readdirop.op(path, isfile, store);
+    for (itr = names.begin(); itr != names.end(); itr++) {
+	ret = op(itr->first.c_str(), itr->second, store);
+	if (ret != PLFS_SUCCESS) return ret;
     }
+    if (delTop) ret = store->Rmdir(path);
+    return ret;
 }
 
 CreateOp::CreateOp(mode_t newm)

@@ -742,6 +742,12 @@ ContainerFileSystem::symlink(const char *content,
 }
 
 plfs_error_t
+ContainerFileSystem::rmdir(const char *path, int recursive)
+{
+    return container_rmdir(path, recursive);
+}
+
+plfs_error_t
 ContainerFileSystem::statvfs(struct plfs_physpathinfo *ppip,
                              struct statvfs *stbuf)
 {

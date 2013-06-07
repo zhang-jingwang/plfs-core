@@ -471,7 +471,7 @@ SmallFileFS::readdir(struct plfs_physpathinfo *ppip, set<string> *buf)
 }
 
 plfs_error_t
-SmallFileFS::rmdir(struct plfs_physpathinfo *ppip)
+SmallFileFS::rmdir(struct plfs_physpathinfo *ppip, int recursive)
 {
     PathExpandInfo expinfo;
     plfs_error_t ret = PLFS_TBD;
@@ -495,7 +495,7 @@ SmallFileFS::rmdir(struct plfs_physpathinfo *ppip)
     }
     mode_t mode = 0;
     ret = SmallFileFS::getmode(ppip, &mode); // save in case we need to restore
-    UnlinkOp op;
+    UnlinkOp op(recursive);
     ret = plfs_backends_op(ppip, op);
     // check if we started deleting non-empty dirs, if so, restore
     if (ret == PLFS_ENOTEMPTY) {

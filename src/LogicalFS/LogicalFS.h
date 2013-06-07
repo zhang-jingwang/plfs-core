@@ -45,7 +45,8 @@ class
                             set<string> *entries) = 0;
         virtual plfs_error_t readlink(struct plfs_physpathinfo *ppip,
                              char *buf, size_t bufsize, int *bytes) = 0;
-        virtual plfs_error_t rmdir(struct plfs_physpathinfo *ppip) = 0;
+        virtual plfs_error_t rmdir(struct plfs_physpathinfo *ppip,
+                                   int recursive) = 0;
         virtual plfs_error_t symlink(const char *from,
                             struct plfs_physpathinfo *ppip_to) = 0;
         virtual plfs_error_t statvfs(struct plfs_physpathinfo *ppip, 

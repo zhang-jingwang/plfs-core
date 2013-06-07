@@ -806,7 +806,7 @@ int Plfs::f_mkdir (const char *path, mode_t mode )
 int Plfs::f_rmdir( const char *path )
 {
     FUSE_PLFS_ENTER;
-    plfs_error_t err = plfs_rmdir(strPath.c_str());
+    plfs_error_t err = plfs_rmdir(strPath.c_str(), 0);
     ret = -(plfs_error_to_errno(err));
     FUSE_PLFS_EXIT;
 }

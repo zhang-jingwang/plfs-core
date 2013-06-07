@@ -420,12 +420,12 @@ FlatFileSystem::readlink(struct plfs_physpathinfo *ppip, char *buf,
 }
 
 plfs_error_t
-FlatFileSystem::rmdir(struct plfs_physpathinfo *ppip)
+FlatFileSystem::rmdir(struct plfs_physpathinfo *ppip, int recursive)
 {
     plfs_error_t ret = PLFS_SUCCESS;
     mode_t mode = 0; // silence compiler warning
     ret = FlatFileSystem::getmode(ppip, &mode); // XXX: ret never read
-    UnlinkOp op;
+    UnlinkOp op(recursive);
     ret = plfs_backends_op(ppip,op);
     if (ret == PLFS_ENOTEMPTY) {
         mlog(PLFS_DRARE, "Started removing a non-empty directory %s. "

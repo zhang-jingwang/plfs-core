@@ -539,7 +539,7 @@ plfs_rename(const char *from, const char *to)
 }
 
 plfs_error_t
-plfs_rmdir(const char *path)
+plfs_rmdir(const char *path, int recursive)
 {
     plfs_error_t ret = PLFS_SUCCESS;
     struct plfs_physpathinfo ppi;
@@ -549,7 +549,7 @@ plfs_rmdir(const char *path)
 
     ret = plfs_resolvepath(stripped_path, &ppi);
     if (ret == PLFS_SUCCESS) {
-        ret = ppi.mnt_pt->fs_ptr->rmdir(&ppi);
+        ret = ppi.mnt_pt->fs_ptr->rmdir(&ppi, recursive);
     }
     else {
         ret = PLFS_EINVAL;

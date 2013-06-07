@@ -33,7 +33,7 @@ class FlatFileSystem : public LogicalFileSystem
         plfs_error_t readdir(struct plfs_physpathinfo *ppip, set<string> *buf);
         plfs_error_t readlink(struct plfs_physpathinfo *ppip, char *buf, size_t bufsize,
                               int *num_bytes);
-        plfs_error_t rmdir(struct plfs_physpathinfo *ppip);
+        plfs_error_t rmdir(struct plfs_physpathinfo *ppip, int recursive);
         plfs_error_t symlink(const char *from,
                     struct plfs_physpathinfo *ppip_to);
         plfs_error_t statvfs(struct plfs_physpathinfo *ppip, struct statvfs *stbuf);

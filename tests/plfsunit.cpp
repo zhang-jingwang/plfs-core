@@ -196,8 +196,8 @@ PlfsUnit::chmodDirTest() {
         CPPUNIT_ASSERT_EQUAL(0, (int)ret);
         CPPUNIT_ASSERT_EQUAL(mode, (mode_t)(result & 0777));
     }
-    ret = plfs_rmdir(pathname);
-    CPPUNIT_ASSERT_EQUAL(0, (int)ret);
+    ret = plfs_rmdir(pathname, 0);
+    CPPUNIT_ASSERT_EQUAL(0, ret);
 }
 
 void
@@ -336,9 +336,9 @@ PlfsUnit::renameTest() {
     ret = plfs_unlink(path.c_str());
     CPPUNIT_ASSERT_EQUAL(0, (int)ret);
     ret = plfs_unlink(path2.c_str());
-    CPPUNIT_ASSERT_EQUAL(0, (int)ret);
-    ret = plfs_rmdir(path3.c_str());
-    CPPUNIT_ASSERT_EQUAL(0, (int)ret);
+    CPPUNIT_ASSERT_EQUAL(0, ret);
+    ret = plfs_rmdir(path3.c_str(), 0);
+    CPPUNIT_ASSERT_EQUAL(0, ret);
 }
 
 void
@@ -362,20 +362,20 @@ PlfsUnit::dirTest() {
 	    CPPUNIT_ASSERT_EQUAL(0, (int)ret);
 	}
     }
-    ret = plfs_rmdir(pathname);
-    CPPUNIT_ASSERT_EQUAL(PLFS_ENOTEMPTY, ret);
+    ret = plfs_rmdir(pathname, 0);
+    CPPUNIT_ASSERT_EQUAL(-ENOTEMPTY, ret);
     ret = plfs_readdir(pathname, &readres);
     CPPUNIT_ASSERT_EQUAL(0, (int)ret);
     for (it=readres.begin() ; it != readres.end(); it++) {
 	if (*it == "." || *it == "..") continue;
 	string fullpath = path + "/" + *it;
-	ret = plfs_rmdir(fullpath.c_str());
-	CPPUNIT_ASSERT_EQUAL(0, (int)ret);
+	ret = plfs_rmdir(fullpath.c_str(), 0);
+	CPPUNIT_ASSERT_EQUAL(0, ret);
 	dents.erase("/" + *it);
     }
     CPPUNIT_ASSERT(dents.empty());
-    ret = plfs_rmdir(pathname);
-    CPPUNIT_ASSERT_EQUAL(0, (int)ret);
+    ret = plfs_rmdir(pathname, 0);
+    CPPUNIT_ASSERT_EQUAL(0, ret);
 }
 
 void

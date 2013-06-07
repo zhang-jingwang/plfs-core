@@ -31,7 +31,7 @@ class ContainerFileSystem : public LogicalFileSystem
         plfs_error_t mkdir(struct plfs_physpathinfo *ppip, mode_t);
         plfs_error_t readdir(struct plfs_physpathinfo *ppip, set<string> *buf);
         plfs_error_t readlink(struct plfs_physpathinfo *ppip, char *buf, size_t bufsize, int *bytes);
-        plfs_error_t rmdir(struct plfs_physpathinfo *ppip);
+        plfs_error_t rmdir(struct plfs_physpathinfo *ppip, int recursive);
         plfs_error_t symlink(const char *from, struct plfs_physpathinfo *ppip_to);
         plfs_error_t statvfs(struct plfs_physpathinfo *ppip, struct statvfs *stbuf);
         plfs_error_t resolvepath_finish(struct plfs_physpathinfo *ppip);

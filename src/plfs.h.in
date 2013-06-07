@@ -191,7 +191,10 @@ typedef void *Plfs_dirp;
 
     plfs_error_t plfs_rename( const char *from, const char *to );
 
-    plfs_error_t plfs_rmdir( const char *path );
+    /* if recursive is set to non-zero value, then try to remove directory
+     * and its contents recursively
+     */
+    plfs_error_t plfs_rmdir( const char *path, int recursive );
 
     plfs_error_t plfs_statvfs( const char *path, struct statvfs *stbuf );
 

@@ -170,12 +170,15 @@ class
     UnlinkOp : public FileOp
 {
     public:
-        UnlinkOp() { }
+	UnlinkOp();
+	UnlinkOp(int);
         plfs_error_t do_op(const char *, unsigned char, IOStore *);
         plfs_error_t op_r(const char *, unsigned char type, IOStore *s, bool top);
         const char *name() {
             return "UnlinkOp";
         }
+    private:
+	int recursive;
 };
 
 class
