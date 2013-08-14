@@ -147,12 +147,12 @@ find_read_tasks(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
                 << task.path << endl;
             // check to see if we can combine small sequential reads
             // when merging is off, that breaks things even more.... ?
-            // there seems to be a merging bug now too
-            if ( ! tasks->empty() > 0 ) {
-                ReadTask lasttask = tasks->back();
-                if ( task.fh != NULL && lasttask.fh == task.fh &&
-                        lasttask.hole == task.hole &&
-                        lasttask.chunk_offset + (off_t)lasttask.length ==
+	    // there seems to be a merging bug now too
+	    if ( ! tasks->empty() > 0 ) {
+		ReadTask lasttask = tasks->back();
+		if ( task.fh != NULL && lasttask.fh == task.fh &&
+			lasttask.hole == task.hole &&
+			lasttask.chunk_offset + (off_t)lasttask.length ==
 			task.chunk_offset &&
 			lasttask.logical_offset + (off_t)lasttask.length ==
 			task.logical_offset &&
