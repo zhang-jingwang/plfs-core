@@ -44,11 +44,11 @@ free_shard_list(plfs_shard *head, int loc_required)
 // if loc_required is setting to 0, then try to merge across different devices.
 // Or try to merge within each device.
 // return 0 or -err
-int
+plfs_error_t
 build_shrad_list(list<ReadTask> *tasks, plfs_shard **head,
 		 int loc_required)
 {
-    int ret = 0;
+    plfs_error_t ret = PLFS_SUCCESS;
     list<ReadTask>::iterator itr;
     plfs_shard *shard = NULL, *current = NULL;
     struct plfs_backend *backend; //retrieve back backend device by phsical path
@@ -61,7 +61,7 @@ build_shrad_list(list<ReadTask> *tasks, plfs_shard **head,
 	if ( itr->hole ) continue;
 	shard = new plfs_shard;
 	if( shard == NULL ){
-	    ret = -ENOMEM;
+	    ret = PLFS_ENOMEM;
 	    break;
 	}
 	shard->xvec.offset = itr->logical_offset;
@@ -185,7 +185,7 @@ int
 plfs_shard_builder(PLFSIndex *index, off_t offset, size_t size,
 		   int loc_required, plfs_shard **head)
 {
-    int ret;
+    plfs_error_t ret;
     list<ReadTask> tasks;   // a container of read tasks in case the logical
 
     index->lock(__FUNCTION__); // in case another FUSE thread in here
@@ -194,7 +194,7 @@ plfs_shard_builder(PLFSIndex *index, off_t offset, size_t size,
     ret = find_read_tasks(index,&tasks,size,offset, NULL);
     index->unlock(__FUNCTION__); // in case another FUSE thread in here
 
-    if( ret == 0 ){
+    if( ret == PLFS_SUCCESS ){
 	// build shard list depending on whether location is required
 	ret = build_shrad_list(&tasks, head, loc_required);
     }
@@ -340,7 +340,7 @@ parallize_reader(list<ReadTask> &tasks, PLFSIndex *index, ssize_t *bytes_read)
         while( ! tasks.empty() ) {
             ReadTask task = tasks.front();
             tasks.pop_front();
-            plfs_ret = perform_read_task( &task, index, &ret );
+            plfs_error_t plfs_ret = perform_read_task( &task, index, &ret );
             if ( plfs_ret != PLFS_SUCCESS ) {
                 plfs_error = plfs_ret;
             } else {
@@ -359,7 +359,7 @@ plfs_error_t
 plfs_reader(void * /* pfd */, char *buf, size_t size, off_t offset,
             PLFSIndex *index, ssize_t *bytes_read)
 {
-    size_t ret = 0;    // for holding temporary return values
+    plfs_error_t ret;    // for holding temporary return values
     list<ReadTask> tasks;   // a container of read tasks in case the logical
     // read spans multiple chunks so we can thread them
     // you might think that this can fail because this call is not in a mutex
@@ -375,8 +375,9 @@ plfs_reader(void * /* pfd */, char *buf, size_t size, off_t offset,
     // let's leave early if possible to make remaining code cleaner by
     // not worrying about these conditions
     // tasks is empty for a zero length file or an EOF
-    if ( ret != 0 || tasks.empty() ) {
-	PLFS_EXIT(ret);
+    if ( ret != PLFS_SUCCESS || tasks.empty() ) {
+        *bytes_read = 0;
+        return ret;
     }
 
     return parallize_reader(tasks, index, bytes_read);
@@ -393,7 +394,8 @@ plfs_xreader(void *pfd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
 	     int xvcnt, PLFSIndex *index, ssize_t *bytes_read)
 {
     int i, j;
-    size_t ret = 0, remaining, bytes_remaining;
+    size_t remaining, bytes_remaining;
+    plfs_error_t ret;
     off_t pos; // logical file offset reading from
     char *base = NULL; // memory buffer pointer reading to
     size_t size; // length of read operation
@@ -408,7 +410,10 @@ plfs_xreader(void *pfd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
     for(j=0; j<xvcnt; j++){
 	xvecLen += xvec[j].len;
     }
-    if(iovLen == 0 || xvecLen == 0) PLFS_EXIT(ret);
+    if(iovLen == 0 || xvecLen == 0) {
+        *bytes_read = 0;
+        return PLFS_EINVAL;
+    }
 
     i = j = 0; // indicators of which iovec or plfs_xvec we are processing now
     pos = xvec[0].offset; // initialize to first plfs_xvec's starting offset
@@ -453,8 +458,9 @@ plfs_xreader(void *pfd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
     // let's leave early if possible to make remaining code cleaner by
     // not worrying about these conditions
     // tasks is empty for a zero length file or an EOF
-    if ( ret != 0 || tasks.empty() ) {
-	PLFS_EXIT(ret);
+    if ( ret != PLFS_SUCCESS || tasks.empty() ) {
+        *bytes_read = 0;
+        return ret;
     }
 
     return parallize_reader(tasks, index, bytes_read);

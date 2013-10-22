@@ -360,7 +360,7 @@ plfs_query_shard(Plfs_fd *fd, off_t offset, size_t size, plfs_shard **shard,
     mss::mlog_oss oss;
     oss << fd->getPath() << " -> " <<offset << ", " << size;
     debug_enter(__FUNCTION__,oss.str());
-    int ret = fd->query_shard(offset, size, shard, loc_required);
+    plfs_error_t ret = fd->query_shard(offset, size, shard, loc_required);
     debug_exit(__FUNCTION__,oss.str(),ret);
     return ret;
 }
@@ -370,7 +370,7 @@ plfs_free_shard(Plfs_fd *fd, plfs_shard *shard, int loc_required)
 {
     mss::mlog_oss oss;
     debug_enter(__FUNCTION__,oss.str());
-    int ret = fd->free_shard(shard, loc_required);
+    plfs_error_t ret = fd->free_shard(shard, loc_required);
     debug_exit(__FUNCTION__,oss.str(),ret);
     return ret;
 }
@@ -389,13 +389,13 @@ plfs_read(Plfs_fd *fd, char *buf, size_t size, off_t offset, ssize_t *bytes_read
 
 ssize_t
 plfs_readx(Plfs_fd *fd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
-	   int xvcnt)
+	   int xvcnt, ssize_t *rbytes)
 {
     mss::mlog_oss oss;
     debug_enter(__FUNCTION__,oss.str());
-    ssize_t ret = 0;
+    plfs_error_t ret = PLFS_SUCCESS;
     if (iovcnt > 0 && xvcnt > 0){
-	ret = fd->readx(iov, iovcnt, xvec, xvcnt);
+	ret = fd->readx(iov, iovcnt, xvec, xvcnt, rbytes);
     }
     debug_exit(__FUNCTION__,oss.str(),ret);
     return ret;
@@ -716,16 +716,16 @@ plfs_write(Plfs_fd *fd, const char *buf, size_t size,
 
 ssize_t
 plfs_writex(Plfs_fd *fd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
-	    int xvcnt, pid_t pid)
+	    int xvcnt, pid_t pid, ssize_t *wbytes)
 {
     mss::mlog_oss oss(PLFS_DAPI);
     debug_enter(__FUNCTION__,oss.str());
-    ssize_t wret = 0;
+    plfs_error_t ret = PLFS_SUCCESS;
     if (iovcnt > 0 && xvcnt > 0){
-	wret = fd->writex(iov, iovcnt, xvec, xvcnt, pid);
+	ret = fd->writex(iov, iovcnt, xvec, xvcnt, pid, wbytes);
     }
-    debug_exit(__FUNCTION__,oss.str(),(int)wret);
-    return wret;
+    debug_exit(__FUNCTION__,oss.str(), ret);
+    return ret;
 }
 
 // Should these functions be exposed to FUSE or ADIO?

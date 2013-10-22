@@ -455,11 +455,11 @@ WriteFile::prepareForWrite( pid_t pid )
 }
 
 // save this write as an index entry
-int
+plfs_error_t
 WriteFile::writeIndex(off_t offset, ssize_t size, double begin, double end,
 		      pid_t pid)
 {
-    int ret = 0;
+    plfs_error_t ret = PLFS_SUCCESS;
     write_count++;
     index->addWrite( offset, size, pid, begin, end );
     // TODO: why is 1024 a magic number?
@@ -473,7 +473,7 @@ WriteFile::writeIndex(off_t offset, ssize_t size, double begin, double end,
 		    "no longer buffering");
 	}
     }
-    if (ret >= 0) {
+    if (ret == PLFS_SUCCESS) {
 	addWrite(offset, size);    // track our own metadata
     }
     return ret;
@@ -536,20 +536,20 @@ plfs_error_t
 WriteFile::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
 		  pid_t pid, ssize_t *bytes_written)
 {
-    int ret = 0;
+    plfs_error_t ret = PLFS_SUCCESS;
     ssize_t written;
 
     ret = prepareForWrite( pid );
-    if ( ret == 0 ) {
+    if ( ret == PLFS_SUCCESS ) {
 	OpenFh *ofh = getFh( pid );
 	IOSHandle *wfh = ofh->fh;
 	// write the data file
 	double begin, end;
 	begin = Util::getTime();
-	ret = written = wfh->Writev(iov, iovcnt);
+	ret = wfh->Writev(iov, iovcnt, &written);
 	end = Util::getTime();
 	// then the index
-	if ( ret >= 0 ) {
+	if ( ret == PLFS_SUCCESS ) {
 	    size_t iovLen = 0; // total size of all memory segments in iov
 	    size_t bytes_traversed = 0; // number of bytes traversed along xvec
 	    size_t length = 0; // size of each index entry
@@ -566,9 +566,6 @@ WriteFile::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
 		// don't write more data than iovLen. Just left the remainder
 		// of xvec unchanged.
 		if(ret < 0 || bytes_traversed >= iovLen) break;
-            }
-            if (ret == PLFS_SUCCESS) {
-                addWrite(offset, size);    // track our own metadata
             }
             Util::MutexUnlock( &index_mux, __FUNCTION__ );
         }

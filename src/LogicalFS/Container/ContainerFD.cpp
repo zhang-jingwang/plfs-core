@@ -525,14 +525,16 @@ plfs_error_t
 Container_fd::readx(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
                     ssize_t *bytes_read)
 {
-    return container_readx(fd, iov, iovcnt, xvec, xvcnt, bytes_read);
+    //    return container_readx(fd, iov, iovcnt, xvec, xvcnt, bytes_read);
+    return PLFS_SUCCESS;
 }
 
 plfs_error_t
 Container_fd::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
 		     pid_t pid, ssize_t *bytes_written)
 {
-    return container_writex(fd, iov, iovcnt, xvec, xvcnt, pid, bytes_written);
+    //    return container_writex(fd, iov, iovcnt, xvec, xvcnt, pid, bytes_written);
+    return PLFS_SUCCESS;
 }
 
 plfs_error_t
@@ -743,17 +745,18 @@ Container_fd::query(size_t *writers, size_t *readers, size_t *bytes_written,
     return PLFS_SUCCESS;
 }
 
-int
+plfs_error_t
 Container_fd::query_shard(off_t offset, size_t size, plfs_shard **shard,
 			  int loc_required)
 {
-    return container_query_shard(fd, offset, size, shard, loc_required);
+    //    return container_query_shard(fd, offset, size, shard, loc_required);
+    return PLFS_SUCCESS;
 }
 
-int
+plfs_error_t
 Container_fd::free_shard(plfs_shard *shard, int loc_required)
 {
-    return container_free_shard(shard, loc_required);
+    return PLFS_SUCCESS;
 }
 
 bool

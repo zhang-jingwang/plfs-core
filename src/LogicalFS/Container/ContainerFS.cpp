@@ -711,12 +711,12 @@ ContainerFileSystem::readlink(struct plfs_physpathinfo *ppip, char *buf,
 // need to test this corner case probably
 // return PLFS_SUCCESS or PLFS_E*
 plfs_error_t
-ContainerFileSystem::rmdir(struct plfs_physpathinfo *ppip)
+ContainerFileSystem::rmdir(struct plfs_physpathinfo *ppip, int recursive)
 {
     plfs_error_t ret = PLFS_SUCCESS;
     // save mode in case we need to restore
     mode_t mode = Container::getmode(ppip->canbpath, ppip->canback);
-    UnlinkOp op;
+    UnlinkOp op(recursive);
     ret = plfs_backends_op(ppip,op);
     // check if we started deleting non-empty dirs, if so, restore
     if (ret==PLFS_ENOTEMPTY) {
@@ -739,12 +739,6 @@ ContainerFileSystem::symlink(const char *content,
     mlog(PLFS_DAPI, "%s: %s to %s: %d", __FUNCTION__,
          content, ppip_to->canbpath.c_str(),ret);
     return(ret);
-}
-
-plfs_error_t
-ContainerFileSystem::rmdir(const char *path, int recursive)
-{
-    return container_rmdir(path, recursive);
 }
 
 plfs_error_t
