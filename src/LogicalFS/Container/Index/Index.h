@@ -8,6 +8,7 @@
 #include <list>
 using namespace std;
 
+#include "plfs.h"
 #include "Util.h"
 #include "Metadata.h"
 #include "PLFSIndex.h"
@@ -36,9 +37,8 @@ class IndexFileInfo
 class HostEntry
 {
     public:
-        HostEntry();
+	HostEntry() {};
         HostEntry( off_t o, size_t s, pid_t p );
-        HostEntry( const HostEntry& copy );
         bool overlap( const HostEntry& );
         bool contains ( off_t ) const;
         bool splittable ( off_t ) const;
@@ -60,10 +60,11 @@ class HostEntry
         size_t length;
         double begin_timestamp;
         double end_timestamp;
+	Plfs_checksum checksum;
         pid_t  id;      // needs to be last so no padding
-
+	char padding[4]; // explict padding bytes.
         friend class Index;
-};
+} __attribute__((packed)); // Disable compiler packing for on-disk structure
 
 
 // this is the class that represents one record in the in-memory
@@ -114,7 +115,8 @@ class Index : public Metadata, public PLFSIndex
 
         bool ispopulated( );
 
-        void addWrite( off_t offset, size_t bytes, pid_t, double, double );
+	void addWrite( off_t offset, size_t bytes, pid_t, double, double,
+		       Plfs_checksum checksum);
 
         size_t memoryFootprintMBs();    // how much area the index is occupying
 

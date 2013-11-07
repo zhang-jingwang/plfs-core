@@ -111,4 +111,9 @@ const char *plfs_version();
 
 double plfs_wtime();
 
+/*
+ * Returns whether a buffer match with a checksum.
+ */
+bool plfs_checksum_match(const char *buf, size_t size, Plfs_checksum checksum);
+
 #endif

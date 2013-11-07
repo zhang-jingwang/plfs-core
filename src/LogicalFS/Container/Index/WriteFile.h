@@ -53,7 +53,8 @@ class WriteFile : public Metadata
         plfs_error_t truncate( off_t );
         plfs_error_t extend( off_t );
 
-        plfs_error_t write( const char *, size_t, off_t, pid_t, ssize_t * );
+	plfs_error_t write( const char *, size_t, off_t, pid_t, ssize_t *,
+			    Plfs_checksum cksum);
 	plfs_error_t writex(struct iovec *, int, plfs_xvec *, int, pid_t,
                             ssize_t *);
 

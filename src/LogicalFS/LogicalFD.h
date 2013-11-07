@@ -17,6 +17,11 @@ class Plfs_fd
         virtual plfs_error_t read(char *buf, size_t size, off_t offset, ssize_t *bytes_read) = 0;
         virtual plfs_error_t write(const char *buf, size_t size, off_t offset,
                               pid_t pid, ssize_t *bytes_written) = 0;
+	virtual plfs_error_t write(const char *buf, size_t size, off_t offset,
+				   pid_t pid, ssize_t *bytes_written,
+				   Plfs_checksum checksum) {
+	    return PLFS_ENOSYS; // For flat file and small file.
+	}
 	virtual plfs_error_t readx(struct iovec *, int,
                                    plfs_xvec *, int, ssize_t *)
 	{

@@ -35,7 +35,7 @@ set_default_confs(PlfsConf *pconf)
     pconf->direct_io = 0;
     pconf->lazy_stat = 1;
     pconf->lazy_droppings = 1;
-    pconf->compress_contiguous = 1;    
+    pconf->compress_contiguous = 0;
     pconf->err_msg = NULL;
     pconf->buffer_mbs = 64;
     pconf->read_buffer_mbs = 64;
@@ -224,6 +224,8 @@ namespace YAML {
                if(node["compress_contiguous"]) {
                    if(!conv(node["compress_contiguous"],pconf.compress_contiguous))
                        pconf.err_msg = new string ("Illegal compress_contiguous");
+		   if (pconf.compress_contiguous)
+		       pconf.err_msg = new string ("Index compress is disabled because of checksum");
                }
                if(node["index_buffer_mbs"]) {
                    if(!conv(node["index_buffer_mbs"], pconf.buffer_mbs) ||

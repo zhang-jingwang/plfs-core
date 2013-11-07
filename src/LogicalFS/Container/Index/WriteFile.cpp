@@ -416,7 +416,7 @@ WriteFile::extend( off_t offset )
     plfs_error_t ret;
     ret = prepareForWrite();
     if ( ret == PLFS_SUCCESS ) {
-        index->addWrite( offset, 0, open_pid, createtime, createtime );
+	index->addWrite( offset, 0, open_pid, createtime, createtime, 0);
         addWrite( offset, 0 );   // maintain metadata
     }
 
@@ -457,11 +457,11 @@ WriteFile::prepareForWrite( pid_t pid )
 // save this write as an index entry
 plfs_error_t
 WriteFile::writeIndex(off_t offset, ssize_t size, double begin, double end,
-		      pid_t pid)
+		      pid_t pid, Plfs_checksum checksum)
 {
     plfs_error_t ret = PLFS_SUCCESS;
     write_count++;
-    index->addWrite( offset, size, pid, begin, end );
+    index->addWrite( offset, size, pid, begin, end, checksum );
     // TODO: why is 1024 a magic number?
     int flush_count = 1024;
     if (write_count%flush_count==0) {
@@ -488,7 +488,7 @@ WriteFile::writeIndex(off_t offset, ssize_t size, double begin, double end,
 // @param bytes_written return bytes written
 // returns PLFS_SUCCESS or PLFS_E*
 plfs_error_t
-WriteFile::write(const char *buf, size_t size, off_t offset, pid_t pid, ssize_t *bytes_written)
+WriteFile::write(const char *buf, size_t size, off_t offset, pid_t pid, ssize_t *bytes_written, Plfs_checksum checksum)
 {
     plfs_error_t ret = PLFS_SUCCESS;
     ssize_t written = 0;
@@ -509,7 +509,7 @@ WriteFile::write(const char *buf, size_t size, off_t offset, pid_t pid, ssize_t 
         // then the index
         if ( ret == PLFS_SUCCESS ) {
             Util::MutexLock(   &index_mux , __FUNCTION__);
-            ret = writeIndex(offset, written, begin, end, pid);
+	    ret = writeIndex(offset, written, begin, end, pid, checksum);
             Util::MutexUnlock( &index_mux, __FUNCTION__ );
         }
     }
@@ -546,7 +546,7 @@ WriteFile::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
 		if(bytes_traversed < iovLen){
 		    length = min(xvec[i].len, iovLen-bytes_traversed);
 		}
-		ret = writeIndex(xvec[i].offset, length, begin, end, pid);
+		ret = writeIndex(xvec[i].offset, length, begin, end, pid, 0);
 		bytes_traversed += length;
 		// don't write more data than iovLen. Just left the remainder
 		// of xvec unchanged.

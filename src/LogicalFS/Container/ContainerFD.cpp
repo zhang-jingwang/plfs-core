@@ -6,6 +6,7 @@
 #include "mlog.h"
 #include "mlogfacs.h"
 #include "mlog_oss.h"
+#include <mchecksum.h>
 
 // TODO:
 // this global variable should be a plfs conf
@@ -84,6 +85,7 @@ Container_OpenFile::Container_OpenFile(WriteFile *wf, Index *i, pid_t pi,
     this->mode      = m;
     this->ctime     = t.tv_sec;
     this->reopen    = false;
+    this->mcksum_enabled = true;
     pthread_mutex_init(&index_mux,NULL);
 }
 
@@ -127,13 +129,13 @@ pid_t Container_OpenFile::getPid()
 }
 
 
-Container_fd::Container_fd()
+Container_fd::Container_fd() : fd(NULL)
 {
-    fd = NULL;
 }
 
 Container_fd::~Container_fd()
 {
+    if (fd) mlog(PLFS_DRARE, "Open file is destructed.");
     return;
 }
 
@@ -509,34 +511,54 @@ plfs_error_t
 Container_fd::write(const char *buf, size_t size, off_t offset, pid_t pid,
                     ssize_t *bytes_written)
 {
+    Plfs_checksum tmp_checksum = 0xDA7A0150BAD0;
     Container_OpenFile *pfd = this->fd;
-    // this can fail because this call is not in a mutex so it's possible
-    // that some other thread in a close is changing ref counts right now
-    // but it's OK that the reference count is off here since the only
-    // way that it could be off is if someone else removes their handle,
-    // but no-one can remove the handle being used here except this thread
-    // which can't remove it now since it's using it now
-    //plfs_reference_count(pfd);
-    // possible that we cache index in RDWR.  If so, delete it on a write
-    /*
-    Index *index = pfd->getIndex();
-    if (index != NULL) {
-        assert(cache_index_on_rdwr);
-        pfd->lockIndex();
-        if (pfd->getIndex()) { // make sure another thread didn't delete
-            delete index;
-            pfd->setIndex(NULL);
+    bool checksum_enabled = pfd->checksum_enabled();
+    if (checksum_enabled) {
+	mchecksum_object_t mchecksum;
+	int ret;
+	ret = mchecksum_init("crc64", &mchecksum);
+	if (ret < 0) return PLFS_EFAULT;
+	ret = mchecksum_update(mchecksum, buf, size);
+	if (ret < 0) {
+	    mchecksum_destroy(mchecksum);
+	    return PLFS_EFAULT;
+	}
+	ret = mchecksum_get(mchecksum, &tmp_checksum, sizeof(tmp_checksum), 1);
+	if (ret < 0) {
+	    mchecksum_destroy(mchecksum);
+	    return PLFS_EFAULT;
         }
-        pfd->unlockIndex();
+	mchecksum_destroy(mchecksum);
     }
-    */
     plfs_error_t ret = PLFS_SUCCESS;
     ssize_t written;
     WriteFile *wf = pfd->getWritefile();
-    ret = wf->write(buf, size, offset, pid, &written);
+    ret = wf->write(buf, size, offset, pid, &written, tmp_checksum);
+    mlog(PLFS_DAPI, "%s: Wrote to %s, offset %ld, size %ld: ret %ld",
+	 __FUNCTION__, pfd->getPath(), (long)offset, (long)size, (long)ret);
+    *bytes_written = written;
+    if (checksum_enabled) {
+	if (written != size) ret = PLFS_EIO; // Disallow partial write.
+    }
+    return(ret);
+}
+
+plfs_error_t
+Container_fd::write(const char *buf, size_t size, off_t offset, pid_t pid,
+		    ssize_t *bytes_written, Plfs_checksum checksum)
+{
+    Container_OpenFile *pfd = this->fd;
+    bool checksum_enabled = pfd->checksum_enabled();
+    if (!checksum_enabled) return PLFS_EBADF; // Disallowed.
+    ssize_t written;
+    WriteFile *wf = pfd->getWritefile();
+    plfs_error_t ret = wf->write(buf, size, offset, pid, &written, checksum);
     mlog(PLFS_DAPI, "%s: Wrote to %s, offset %ld, size %ld: ret %ld",
          __FUNCTION__, pfd->getPath(), (long)offset, (long)size, (long)ret);
     *bytes_written = written;
+    if (written != size || !plfs_checksum_match(buf, size, checksum))
+	ret = PLFS_EIO; // Disallow partial or mismatched write.
     return(ret);
 }
 

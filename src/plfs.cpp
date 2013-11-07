@@ -708,7 +708,30 @@ plfs_write(Plfs_fd *fd, const char *buf, size_t size,
     debug_enter(__FUNCTION__,oss.str());
     plfs_error_t wret = PLFS_SUCCESS;
     if (size > 0){
-         wret = fd->write(buf, size, offset, pid, bytes_written);
+	wret = fd->write(buf, size, offset, pid, bytes_written);
+    }
+    debug_exit(__FUNCTION__,oss.str(),wret);
+    return wret;
+}
+
+/*
+ * PLFS write with checksum
+ *
+ * This is almost the same as plfs_write, however we call the
+ * LogicalFD->write() with checksum, so that the FD could know
+ * whether the write is checksum-ed or not.
+ */
+plfs_error_t
+plfs_writec(Plfs_fd *fd, const char *buf, size_t size,
+	    off_t offset, pid_t pid, ssize_t *bytes_written,
+	    Plfs_checksum checksum)
+{
+    mss::mlog_oss oss(PLFS_DAPI);
+    oss << fd->getPath() << " -> " <<offset << ", " << size;
+    debug_enter(__FUNCTION__,oss.str());
+    plfs_error_t wret = PLFS_SUCCESS;
+    if (size > 0){
+	wret = fd->write(buf, size, offset, pid, bytes_written, checksum);
     }
     debug_exit(__FUNCTION__,oss.str(),wret);
     return wret;

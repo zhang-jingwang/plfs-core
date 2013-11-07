@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <mchecksum.h>
 #include "plfs_internal.h"
 #include "plfs_private.h"
 #include "Util.h"
@@ -969,4 +970,23 @@ plfs_phys_backlookup(const char *phys, PlfsMount *pmnt,
     }
 
     return(rv);
+}
+
+bool
+plfs_checksum_match(const char *buffer, size_t size, Plfs_checksum checksum)
+{
+    mchecksum_object_t tmp_checksum;
+    int ret = mchecksum_init("crc64", &tmp_checksum);
+    bool match = false;
+    if (ret < 0) return false;
+    assert(mchecksum_get_size(tmp_checksum) == sizeof(checksum));
+    ret = mchecksum_update(tmp_checksum, buffer, size);
+    if (ret >= 0) {
+	Plfs_checksum tmp;
+	ret = mchecksum_get(tmp_checksum, &tmp, sizeof(tmp), 1);
+	if (ret >= 0 && memcmp(&tmp, &checksum, sizeof(tmp)) == 0)
+	    match = true;
+    }
+    mchecksum_destroy(tmp_checksum);
+    return match;
 }

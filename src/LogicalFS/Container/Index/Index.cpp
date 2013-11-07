@@ -26,29 +26,11 @@
 #include "plfs_private.h"
 #include "mlog_oss.h"
 
-HostEntry::HostEntry()
-{
-    // valgrind complains about unitialized bytes in this thing
-    // this is because there is padding in this object
-    // so let's initialize our entire self
-    memset(this,0,sizeof(*this));
-}
-
 HostEntry::HostEntry(off_t o, size_t s, pid_t p)
 {
     logical_offset = o;
     length = s;
     id = p;
-}
-
-HostEntry::HostEntry(const HostEntry& copy)
-{
-    // similar to standard constructor, this
-    // is used when we do things like push a HostEntry
-    // onto a vector.  We can't rely on default constructor bec on the
-    // same valgrind complaint as mentioned in the first constructor
-    memset(this,0,sizeof(*this));
-    memcpy(this,&copy,sizeof(*this));
 }
 
 bool
@@ -1299,7 +1281,8 @@ Index::memoryFootprintMBs()
 
 void
 Index::addWrite( off_t offset, size_t length, pid_t pid,
-                 double begin_timestamp, double end_timestamp )
+		 double begin_timestamp, double end_timestamp,
+		 Plfs_checksum checksum )
 {
     Metadata::addWrite( offset, length );
     // check whether incoming abuts with last and we want to compress
@@ -1317,7 +1300,6 @@ Index::addWrite( off_t offset, size_t length, pid_t pid,
     } else {
         // create a new index entry for this write
         HostEntry entry;
-        memset(&entry,0,sizeof(HostEntry)); // suppress valgrind complaint
         entry.logical_offset = offset;
         entry.length         = length;
         entry.id             = pid;
@@ -1325,6 +1307,7 @@ Index::addWrite( off_t offset, size_t length, pid_t pid,
         // valgrind complains about this line as well:
         // Address 0x97373bc is 20 bytes inside a block of size 40 alloc'd
         entry.end_timestamp   = end_timestamp;
+	entry.checksum = checksum;
         // lookup the physical offset
         map<pid_t,off_t>::iterator itr = physical_offsets.find(pid);
         if ( itr == physical_offsets.end() ) {
@@ -1476,7 +1459,8 @@ Index::rewriteIndex( IOSHandle *rfh )
         begin_timestamp = itrd->second.begin_timestamp;
         end_timestamp   = itrd->second.end_timestamp;
         addWrite( itrd->second.logical_offset,itrd->second.length,
-                  itrd->second.original_chunk, begin_timestamp, end_timestamp );
+		  itrd->second.original_chunk, begin_timestamp, end_timestamp,
+		  itrd->second.checksum );
         /*
         ostringstream os;
         os << __FUNCTION__ << " added : " << itr->second;
