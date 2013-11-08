@@ -23,34 +23,21 @@ struct PlfsMount;
 class IndexFileInfo
 {
     public:
-        IndexFileInfo();
         plfs_error_t listToStream(vector<IndexFileInfo> &list,int *bytes, void **ret_buf);
         vector<IndexFileInfo> streamToList(void *addr);
         //bool operator<(IndexFileInfo d1);
         double timestamp;
         string hostname;
-        pid_t  id;
+	pid_t  id;
 };
 
-// this is the class that represents the records that get written into the
+// this is the structure that represents the records that get written into the
 // index file for each host.
-class HostEntry
+struct HostEntry
 {
-    public:
-	HostEntry() {};
-        HostEntry( off_t o, size_t s, pid_t p );
-        bool overlap( const HostEntry& );
-        bool contains ( off_t ) const;
-        bool splittable ( off_t ) const;
-        bool abut   ( const HostEntry& );
-        off_t logical_tail( ) const;
-        bool follows(const HostEntry&);
-        bool preceeds(const HostEntry&);
-
-    protected:
-        off_t  logical_offset;
-        off_t  physical_offset;  // I tried so hard to not put this in here
-        // to save some bytes in the index entries
+	off_t  logical_offset;
+	off_t  physical_offset;  // I tried so hard to not put this in here
+	// to save some bytes in the index entries
         // on disk.  But truncate breaks it all.
         // we assume that each write makes one entry
         // in the data file and one entry in the index
@@ -61,9 +48,8 @@ class HostEntry
         double begin_timestamp;
         double end_timestamp;
 	Plfs_checksum checksum;
-        pid_t  id;      // needs to be last so no padding
+	pid_t  id;      // needs to be last so no padding
 	char padding[4]; // explict padding bytes.
-        friend class Index;
 } __attribute__((packed)); // Disable compiler packing for on-disk structure
 
 
@@ -76,6 +62,11 @@ class HostEntry
 class ContainerEntry : HostEntry
 {
     public:
+	bool overlap( const ContainerEntry& );
+	bool contains ( off_t ) const;
+	bool splittable ( off_t ) const;
+	off_t logical_tail( ) const;
+
         bool mergable( const ContainerEntry& );
         bool abut( const ContainerEntry& );
         bool follows( const ContainerEntry& );

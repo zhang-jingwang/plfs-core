@@ -26,61 +26,6 @@
 #include "plfs_private.h"
 #include "mlog_oss.h"
 
-HostEntry::HostEntry(off_t o, size_t s, pid_t p)
-{
-    logical_offset = o;
-    length = s;
-    id = p;
-}
-
-bool
-HostEntry::overlap( const HostEntry& other )
-{
-    return(contains(other.logical_offset) || other.contains(logical_offset));
-}
-
-bool
-HostEntry::contains( off_t offset ) const
-{
-    return(offset >= logical_offset && offset < logical_offset + (off_t)length);
-}
-
-// subtly different from contains: excludes the logical offset
-// (i.e. > instead of >=
-bool
-HostEntry::splittable( off_t offset ) const
-{
-    return(offset > logical_offset && offset < logical_offset + (off_t)length);
-}
-
-bool
-HostEntry::preceeds( const HostEntry& other )
-{
-    return    logical_offset  + length == (unsigned int)other.logical_offset
-              &&  physical_offset + length == (unsigned int)other.physical_offset
-              &&  id == other.id;
-}
-
-bool
-HostEntry::follows( const HostEntry& other )
-{
-    return other.logical_offset + other.length == (unsigned int)logical_offset
-           && other.physical_offset + other.length == (unsigned int)physical_offset
-           && other.id == id;
-}
-
-bool
-HostEntry::abut( const HostEntry& other )
-{
-    return (follows(other) || preceeds(other));
-}
-
-off_t
-HostEntry::logical_tail() const
-{
-    return logical_offset + (off_t)length - 1;
-}
-
 // a helper routine for global_to_stream: copies to a pointer and advances it
 char *
 memcpy_helper(char *dst, void *src, size_t len)
@@ -88,12 +33,6 @@ memcpy_helper(char *dst, void *src, size_t len)
     char *ret = (char *)memcpy((void *)dst,src,len);
     ret += len;
     return ret;
-}
-
-// Addedd these next set of function for par index read
-// might want to use the constructor for something useful
-IndexFileInfo::IndexFileInfo()
-{
 }
 
 /**
@@ -202,6 +141,32 @@ IndexFileInfo::streamToList(void *addr)
     return list;
 }
 
+bool
+ContainerEntry::overlap( const ContainerEntry& other )
+{
+    return(contains(other.logical_offset) || other.contains(logical_offset));
+}
+
+bool
+ContainerEntry::contains( off_t offset ) const
+{
+    return(offset >= logical_offset && offset < logical_offset + (off_t)length);
+}
+
+// subtly different from contains: excludes the logical offset
+// (i.e. > instead of >=
+bool
+ContainerEntry::splittable( off_t offset ) const
+{
+    return(offset > logical_offset && offset < logical_offset + (off_t)length);
+}
+
+off_t
+ContainerEntry::logical_tail() const
+{
+    return logical_offset + (off_t)length - 1;
+}
+
 // for dealing with partial overwrites, we split entries in half on split
 // points.  copy *this into new entry and adjust new entry and *this
 // accordingly.  new entry gets the front part, and this is the back.
@@ -222,19 +187,18 @@ ContainerEntry::split(off_t offset)
 bool
 ContainerEntry::preceeds( const ContainerEntry& other )
 {
-    if (!HostEntry::preceeds(other)) {
-        return false;
-    }
-    return (physical_offset + (off_t)length == other.physical_offset);
+    return (logical_offset  + (off_t)length == other.logical_offset)
+	&& (physical_offset + (off_t)length == other.physical_offset)
+	&& id == other.id;
 }
 
 bool
 ContainerEntry::follows( const ContainerEntry& other )
 {
-    if (!HostEntry::follows(other)) {
-        return false;
-    }
-    return (other.physical_offset + (off_t)other.length == physical_offset);
+
+    return other.logical_offset + (off_t)other.length == logical_offset
+	&& other.physical_offset + (off_t)other.length == physical_offset
+	&& other.id == id;
 }
 
 bool
