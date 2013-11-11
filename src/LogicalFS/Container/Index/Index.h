@@ -62,15 +62,11 @@ struct HostEntry
 class ContainerEntry : HostEntry
 {
     public:
-	bool overlap( const ContainerEntry& );
+	bool overlap( const ContainerEntry& ) const;
 	bool contains ( off_t ) const;
 	bool splittable ( off_t ) const;
 	off_t logical_tail( ) const;
 
-        bool mergable( const ContainerEntry& );
-        bool abut( const ContainerEntry& );
-        bool follows( const ContainerEntry& );
-        bool preceeds( const ContainerEntry& );
         ContainerEntry split(off_t); //split in half, this is back, return front
 
     protected:
@@ -78,6 +74,8 @@ class ContainerEntry : HostEntry
         // rewrite the index appropriately for
         // things like truncate to the middle or
         // for the as-yet-unwritten index flattening
+	size_t clength; // The length of the container entry.
+	off_t clogical; // The logical offset of this container entry.
 
         friend ostream& operator <<(ostream&,const ContainerEntry&);
 
@@ -150,7 +148,7 @@ class Index : public Metadata, public PLFSIndex
         void merge( Index *other);
         void truncate( off_t offset );
         plfs_error_t rewriteIndex( IOSHandle *fh );
-        void truncateHostIndex( off_t offset );
+	void truncateHostIndex( off_t , const map<pid_t, IOSHandle *> & );
 
         void compress();
         plfs_error_t debug_from_stream(void *addr);
@@ -168,7 +166,7 @@ class Index : public Metadata, public PLFSIndex
         void init( string, struct plfs_backend * );
         plfs_error_t chunkFound( IOSHandle **, off_t *, size_t *, off_t,
                                  string&, struct plfs_backend **,
-                                 pid_t *, ContainerEntry * );
+				 pid_t *, const ContainerEntry * );
         plfs_error_t cleanupReadIndex(IOSHandle *, void *, off_t, plfs_error_t, const char *,
                                       const char *, struct plfs_backend *);
         plfs_error_t mapIndex( void **, string, IOSHandle **, off_t *,
@@ -183,6 +181,8 @@ class Index : public Metadata, public PLFSIndex
         size_t splitEntry(ContainerEntry *,set<off_t> &,
                           multimap<off_t,ContainerEntry> &);
         void findSplits(ContainerEntry&,set<off_t> &);
+	plfs_error_t shrinkEntry(HostEntry *, off_t end, IOSHandle *);
+
         // where we buffer the host index (i.e. write)
         vector< HostEntry > hostIndex;
 

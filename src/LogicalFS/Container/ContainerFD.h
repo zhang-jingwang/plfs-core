@@ -42,7 +42,7 @@ class Container_OpenFile : public Metadata
         bool      isReopen() {
             return reopen;
         };
-	bool      checksum_enabled() const {
+	bool      checksumEnabled() const {
 	    return mcksum_enabled;
 	};
 

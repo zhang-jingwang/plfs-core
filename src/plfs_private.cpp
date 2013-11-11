@@ -975,18 +975,26 @@ plfs_phys_backlookup(const char *phys, PlfsMount *pmnt,
 bool
 plfs_checksum_match(const char *buffer, size_t size, Plfs_checksum checksum)
 {
+    Plfs_checksum tmp_checksum;
+    plfs_error_t err = plfs_get_checksum(buffer, size, &tmp_checksum);
+    if (err != PLFS_SUCCESS) return false;
+    return memcmp(&tmp_checksum, &checksum, sizeof(checksum)) == 0;
+}
+
+plfs_error_t
+plfs_get_checksum(const char *buffer, size_t size, Plfs_checksum *checksum)
+{
     mchecksum_object_t tmp_checksum;
+    plfs_error_t err = PLFS_EFAULT;
     int ret = mchecksum_init("crc64", &tmp_checksum);
-    bool match = false;
-    if (ret < 0) return false;
-    assert(mchecksum_get_size(tmp_checksum) == sizeof(checksum));
-    ret = mchecksum_update(tmp_checksum, buffer, size);
     if (ret >= 0) {
-	Plfs_checksum tmp;
-	ret = mchecksum_get(tmp_checksum, &tmp, sizeof(tmp), 1);
-	if (ret >= 0 && memcmp(&tmp, &checksum, sizeof(tmp)) == 0)
-	    match = true;
+	assert(mchecksum_get_size(tmp_checksum) == sizeof(*checksum));
+	ret = mchecksum_update(tmp_checksum, buffer, size);
+	if (ret >= 0 && checksum != NULL) {
+	    ret = mchecksum_get(tmp_checksum, checksum, sizeof(*checksum), 1);
+	    if (ret >= 0) err = PLFS_SUCCESS;
+	}
+	mchecksum_destroy(tmp_checksum);
     }
-    mchecksum_destroy(tmp_checksum);
-    return match;
+    return err;
 }

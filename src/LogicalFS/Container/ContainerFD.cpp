@@ -513,7 +513,7 @@ Container_fd::write(const char *buf, size_t size, off_t offset, pid_t pid,
 {
     Plfs_checksum tmp_checksum = 0xDA7A0150BAD0;
     Container_OpenFile *pfd = this->fd;
-    bool checksum_enabled = pfd->checksum_enabled();
+    bool checksum_enabled = pfd->checksumEnabled();
     if (checksum_enabled) {
 	mchecksum_object_t mchecksum;
 	int ret;
@@ -539,7 +539,8 @@ Container_fd::write(const char *buf, size_t size, off_t offset, pid_t pid,
 	 __FUNCTION__, pfd->getPath(), (long)offset, (long)size, (long)ret);
     *bytes_written = written;
     if (checksum_enabled) {
-	if (written != size) ret = PLFS_EIO; // Disallow partial write.
+	// Disallow partial write.
+	if (written < 0 || (size_t)written != size) ret = PLFS_EIO;
     }
     return(ret);
 }
@@ -549,7 +550,7 @@ Container_fd::write(const char *buf, size_t size, off_t offset, pid_t pid,
 		    ssize_t *bytes_written, Plfs_checksum checksum)
 {
     Container_OpenFile *pfd = this->fd;
-    bool checksum_enabled = pfd->checksum_enabled();
+    bool checksum_enabled = pfd->checksumEnabled();
     if (!checksum_enabled) return PLFS_EBADF; // Disallowed.
     ssize_t written;
     WriteFile *wf = pfd->getWritefile();
@@ -557,7 +558,8 @@ Container_fd::write(const char *buf, size_t size, off_t offset, pid_t pid,
     mlog(PLFS_DAPI, "%s: Wrote to %s, offset %ld, size %ld: ret %ld",
          __FUNCTION__, pfd->getPath(), (long)offset, (long)size, (long)ret);
     *bytes_written = written;
-    if (written != size || !plfs_checksum_match(buf, size, checksum))
+    if (written < 0 || (size_t)written != size
+	|| !plfs_checksum_match(buf, size, checksum))
 	ret = PLFS_EIO; // Disallow partial or mismatched write.
     return(ret);
 }

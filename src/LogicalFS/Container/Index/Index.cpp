@@ -142,15 +142,15 @@ IndexFileInfo::streamToList(void *addr)
 }
 
 bool
-ContainerEntry::overlap( const ContainerEntry& other )
+ContainerEntry::overlap( const ContainerEntry& other ) const
 {
-    return(contains(other.logical_offset) || other.contains(logical_offset));
+    return(contains(other.clogical) || other.contains(clogical));
 }
 
 bool
 ContainerEntry::contains( off_t offset ) const
 {
-    return(offset >= logical_offset && offset < logical_offset + (off_t)length);
+    return(offset >= clogical && offset < clogical + (off_t)clength);
 }
 
 // subtly different from contains: excludes the logical offset
@@ -158,13 +158,13 @@ ContainerEntry::contains( off_t offset ) const
 bool
 ContainerEntry::splittable( off_t offset ) const
 {
-    return(offset > logical_offset && offset < logical_offset + (off_t)length);
+    return(offset > clogical && offset < clogical + (off_t)clength);
 }
 
 off_t
 ContainerEntry::logical_tail() const
 {
-    return logical_offset + (off_t)length - 1;
+    return clogical + (off_t)clength - 1;
 }
 
 // for dealing with partial overwrites, we split entries in half on split
@@ -176,41 +176,11 @@ ContainerEntry::split(off_t offset)
 {
     assert(contains(offset));   // the caller should ensure this
     ContainerEntry front = *this;
-    off_t split_offset = offset - this->logical_offset;
-    front.length = split_offset;
-    this->length -= split_offset;
-    this->logical_offset += split_offset;
-    this->physical_offset += split_offset;
+    off_t split_offset = offset - this->clogical;
+    front.clength = split_offset;
+    this->clength -= split_offset;
+    this->clogical = offset;
     return front;
-}
-
-bool
-ContainerEntry::preceeds( const ContainerEntry& other )
-{
-    return (logical_offset  + (off_t)length == other.logical_offset)
-	&& (physical_offset + (off_t)length == other.physical_offset)
-	&& id == other.id;
-}
-
-bool
-ContainerEntry::follows( const ContainerEntry& other )
-{
-
-    return other.logical_offset + (off_t)other.length == logical_offset
-	&& other.physical_offset + (off_t)other.length == physical_offset
-	&& other.id == id;
-}
-
-bool
-ContainerEntry::abut( const ContainerEntry& other )
-{
-    return (preceeds(other) || follows(other));
-}
-
-bool
-ContainerEntry::mergable( const ContainerEntry& other )
-{
-    return ( id == other.id && abut(other) );
 }
 
 ostream& operator <<(ostream& os,const ContainerEntry& entry)
@@ -569,7 +539,7 @@ plfs_error_t Index::readIndex( string hostindex, struct plfs_backend *hback )
     map<pid_t,pid_t>::iterator known_chunks_itr;
     // so we have an index mapped in, let's read it and create
     // mappings to chunk files in our chunk map
-    HostEntry *h_index = (HostEntry *)maddr;
+    const HostEntry *h_index = (const HostEntry *)maddr;
     size_t entries     = length / sizeof(HostEntry); // shouldn't be partials
     // but any will be ignored
     mlog(IDX_DCOMMON, "There are %lu in %s",
@@ -605,6 +575,9 @@ plfs_error_t Index::readIndex( string hostindex, struct plfs_backend *hback )
         c_entry.physical_offset   = h_entry.physical_offset;
         c_entry.begin_timestamp   = h_entry.begin_timestamp;
         c_entry.end_timestamp     = h_entry.end_timestamp;
+	c_entry.checksum          = h_entry.checksum;
+	c_entry.clogical          = h_entry.logical_offset;
+	c_entry.clength           = h_entry.length;
         plfs_error_t ret = insertGlobal( &c_entry );
         if ( ret != PLFS_SUCCESS ) {
             /* caller should prob discard index if we fail here */
@@ -815,19 +788,19 @@ size_t Index::splitEntry( ContainerEntry *entry,
             mlog(IDX_DCOMMON,"%s",oss.str().c_str());
             */
             ContainerEntry trimmed = entry->split(*itr);
-            entries.insert(make_pair(trimmed.logical_offset,trimmed));
+	    entries.insert(make_pair(trimmed.clogical,trimmed));
             num_splits++;
         }
     }
     // insert whatever is left
-    entries.insert(make_pair(entry->logical_offset,*entry));
+    entries.insert(make_pair(entry->clogical,*entry));
     return num_splits;
 }
 
 void Index::findSplits(ContainerEntry& e,set<off_t> &s)
 {
-    s.insert(e.logical_offset);
-    s.insert(e.logical_offset+e.length);
+    s.insert(e.clogical);
+    s.insert(e.clogical + e.clength);
 }
 
 
@@ -904,7 +877,7 @@ plfs_error_t Index::handleOverlap(ContainerEntry& incoming,
     // 3) then clean them up and reinsert them into global
     // insert the incoming if it wasn't already inserted into global (1)
     if ( insert_ret.second == false ) {
-        overlaps.insert(make_pair(incoming.logical_offset,incoming));
+	overlaps.insert(make_pair(incoming.clogical,incoming));
     }
     overlaps.insert(first,last);    // insert the remainder (1)
     global_index.erase(first,last); // remove from global (2)
@@ -960,18 +933,18 @@ Index::insertGlobalEntryHint(
 {
     return global_index.insert(hint,
                                pair<off_t,ContainerEntry>(
-                                   g_entry->logical_offset,
+				   g_entry->clogical,
                                    *g_entry ) );
 }
 
 pair<map<off_t,ContainerEntry>::iterator,bool>
 Index::insertGlobalEntry( ContainerEntry *g_entry)
 {
-    last_offset = max( (off_t)(g_entry->logical_offset+g_entry->length),
+    last_offset = max( (off_t)(g_entry->clogical + g_entry->clength),
                        last_offset );
-    total_bytes += g_entry->length;
+    total_bytes += g_entry->clength;
     return global_index.insert(
-               pair<off_t,ContainerEntry>( g_entry->logical_offset,
+	       pair<off_t,ContainerEntry>( g_entry->clogical,
                                            *g_entry ) );
 }
 
@@ -995,14 +968,13 @@ Index::insertGlobal( ContainerEntry *g_entry )
     next = ret.first;
     next++;
     prev = ret.first;
-    prev--;
     if ( next != global_index.end() && g_entry->overlap( next->second ) ) {
         mss::mlog_oss oss(IDX_DCOMMON);
         oss << "overlap2 " << endl << *g_entry << endl <<next->second;
         oss.commit();
         overlap = true;
     }
-    if (ret.first!=global_index.begin() && prev->second.overlap(*g_entry) ) {
+    if (ret.first!=global_index.begin() && (--prev)->second.overlap(*g_entry) ) {
         mss::mlog_oss oss(IDX_DCOMMON);
         oss << "overlap3 " << endl << *g_entry << endl <<prev->second;
         oss.commit();
@@ -1018,27 +990,6 @@ Index::insertGlobal( ContainerEntry *g_entry )
         if (g_entry->length != 0){
             handleOverlap( *g_entry, ret );
         }
-    } else if (get_plfs_conf()->compress_contiguous) {
-        // does it abuts with the one before it
-        if (ret.first!=global_index.begin() && g_entry->follows(prev->second)) {
-            ioss << "Merging index for " << *g_entry << " and " << prev->second
-                << endl;
-            ioss.commit();
-            prev->second.length += g_entry->length;
-            global_index.erase( ret.first );
-        }
-        /*
-        // does it abuts with the one after it.  This code hasn't been tested.
-        // also, not even sure this would be possible.  Even if it is logically
-        // contiguous with the one after, it wouldn't be physically so.
-        if ( next != global_index.end() && g_entry->abut(next->second) ) {
-            oss << "Merging index for " << *g_entry << " and " << next->second
-                 << endl;
-            mlog(IDX_DCOMMON, "%s", oss.str().c_str());
-            g_entry->length += next->second.length;
-            global_index.erase( next );
-        }
-        */
     }
     return PLFS_SUCCESS;
 }
@@ -1106,13 +1057,14 @@ Index::setChunkFh( pid_t chunkid, IOSHandle *newfh )
 // this does not open the fd to the chunk however
 plfs_error_t
 Index::chunkFound( IOSHandle **xfh, off_t *chunk_off, size_t *chunk_len,
-                   off_t shift, string& path,
+		   off_t logical, string& path,
                    struct plfs_backend **backp, pid_t *chunkid,
-                   ContainerEntry *entry )
+		   const ContainerEntry *entry )
 {
     ChunkFile *cf_ptr = &(chunk_map[entry->id]); // typing shortcut
+    off_t shift = logical - entry->logical_offset;
     *chunk_off  = entry->physical_offset + shift;
-    *chunk_len  = entry->length       - shift;
+    *chunk_len  = entry->clogical + entry->clength - logical;
     *chunkid   = entry->id;
     if( cf_ptr->fh == NULL ) {
         // I'm not sure why we used to open the chunk file here and
@@ -1156,9 +1108,8 @@ Index::globalLookup( IOSHandle **xfh, off_t *chunk_off, size_t *chunk_len,
     *chunkid = (pid_t)-1;
     //mlog(IDX_DCOMMON, "Look up %ld in %s",
     //        (long)logical, physical_path.c_str() );
-    ContainerEntry entry, previous;
     MAP_ITR itr;
-    MAP_ITR prev = (MAP_ITR)NULL;
+    MAP_ITR prev = global_index.end();
     // Finds the first element whose key is not less than k.
     // four possibilities:
     // 1) direct hit
@@ -1182,7 +1133,7 @@ Index::globalLookup( IOSHandle **xfh, off_t *chunk_off, size_t *chunk_len,
         prev = itr;
         prev--;
     }
-    entry = itr->second;
+    const ContainerEntry &entry = itr->second;
     //ostringstream oss;
     //oss << "Considering whether chunk " << entry
     //     << " contains " << logical;
@@ -1193,29 +1144,29 @@ Index::globalLookup( IOSHandle **xfh, off_t *chunk_off, size_t *chunk_len,
         //oss << "FOUND(1): " << entry << " contains " << logical;
         //mlog(IDX_DCOMMON, "%s", oss.str().c_str() );
         return chunkFound( xfh, chunk_off, chunk_len,
-                           logical - entry.logical_offset, path,
+			   logical, path,
                            backp, chunkid, &entry );
     }
     // case 1 or 2
-    if ( prev != (MAP_ITR)NULL ) {
-        previous = prev->second;
+    if ( prev != global_index.end() ) {
+	const ContainerEntry &previous = prev->second;
         if ( previous.contains( logical ) ) {
             //ostringstream oss;
             //oss << "FOUND(2): "<< previous << " contains " << logical << endl;
             //mlog(IDX_DCOMMON, "%s", oss.str().c_str() );
             return chunkFound( xfh, chunk_off, chunk_len,
-                               logical - previous.logical_offset, path,
+			       logical, path,
                                backp, chunkid, &previous );
         }
     }
     // now it's either before entry and in a hole or after entry and off
     // the end of the file
     // case 4: within a hole
-    if ( logical < entry.logical_offset ) {
+    if ( logical < entry.clogical ) {
         mss::mlog_oss oss(IDX_DCOMMON);
         oss << "FOUND(4): " << logical << " is in a hole";
         oss.commit();
-        off_t remaining_hole_size = entry.logical_offset - logical;
+	off_t remaining_hole_size = entry.clogical - logical;
         *xfh = NULL;
         *chunk_len = remaining_hole_size;
         *chunk_off = 0;
@@ -1305,6 +1256,9 @@ Index::addWrite( off_t offset, size_t length, pid_t pid,
         c_entry.physical_offset   = poff;
         c_entry.begin_timestamp   = begin_timestamp;
         c_entry.end_timestamp     = end_timestamp;
+	c_entry.clogical          = offset;
+	c_entry.clength           = length;
+	c_entry.checksum          = checksum;
         insertGlobal(&c_entry);  // push it into the read index structure
         // Make sure we have the chunk path
         // chunk map only used for read index.  We need to maintain it here
@@ -1321,6 +1275,41 @@ Index::addWrite( off_t offset, size_t length, pid_t pid,
             chunk_map.push_back( cf );
         }
     }
+}
+
+/*
+ * Shrink a given HostEntry.
+ *
+ * When a host entry is truncated, the checksum need to be recalculated.
+ */
+plfs_error_t
+Index::shrinkEntry(HostEntry *entry, off_t end, IOSHandle *wfh)
+{
+    plfs_error_t err;
+    ssize_t readlen;
+    char *buffer = (char *)malloc(entry->length);
+    if (buffer == NULL) {
+	return PLFS_ENOMEM;
+    }
+    err = wfh->Pread(buffer, entry->length, entry->physical_offset, &readlen);
+    if (err == PLFS_SUCCESS && readlen > 0
+	&& (size_t)readlen == entry->length) {
+	Plfs_checksum new_checksum;
+	size_t new_length = end - entry->logical_offset;
+	err = plfs_get_checksum(buffer, new_length, &new_checksum);
+	if (err == PLFS_SUCCESS) {
+	    if (plfs_checksum_match(buffer, entry->length, entry->checksum)) {
+		entry->checksum = new_checksum;
+		entry->length = new_length;
+	    } else {
+		mlog(IDX_DRARE, "Checksum mismatch @0x%llx. %s.",
+		     (unsigned long long)entry->logical_offset, buffer);
+		err = PLFS_EIO;
+	    }
+	}
+    }
+    free(buffer);
+    return err;
 }
 
 void
@@ -1340,24 +1329,38 @@ Index::truncate( off_t offset )
     itr = global_index.lower_bound( offset );
     if ( itr == global_index.begin() ) {
         first = true;
+    } else {
+	prev = itr;
+	prev--;
     }
-    prev = itr;
-    prev--;
     // remove everything whose offset >= offset
     global_index.erase( itr, global_index.end() );
     // check whether the previous needs to be
     // internally truncated
     if ( ! first ) {
-        if ((off_t)(prev->second.logical_offset + prev->second.length)
+	if ((off_t)(prev->second.clogical + prev->second.clength)
                 > offset) {
             // say entry is 5.5 that means that ten
             // is a valid offset, so truncate to 7
             // would mean the new length would be 3
-            prev->second.length = offset - prev->second.logical_offset ;//+ 1 ?
+	    prev->second.clength = offset - prev->second.clogical;
             mlog(IDX_DCOMMON, "%s Modified a global index record to length %u",
                  __FUNCTION__, (uint)prev->second.length);
-            if (prev->second.length==0) {
+	    if (prev->second.clength==0) {
                 mlog(IDX_DCOMMON, "Just truncated index entry to 0 length" );
+	    } else {
+		ContainerEntry &entry = prev->second;
+		ChunkFile *cf_ptr = &(chunk_map[entry.id]);
+		plfs_error_t err = PLFS_SUCCESS;
+		if (cf_ptr->fh == NULL) {
+		    err = cf_ptr->backend->store->Open(cf_ptr->bpath.c_str(),
+						       O_RDONLY, &cf_ptr->fh);
+		}
+		if (err == PLFS_SUCCESS) {
+		    shrinkEntry(&entry, offset, cf_ptr->fh);
+		} else {
+		    assert(0); // Truncate didn't return a error code?
+		}
             }
         }
     }
@@ -1367,17 +1370,20 @@ Index::truncate( off_t offset )
 
 // operates on a host entry which is not sorted
 void
-Index::truncateHostIndex( off_t offset )
+Index::truncateHostIndex( off_t offset, const map<pid_t, IOSHandle *> &fhs )
 {
     last_offset = offset;
     vector< HostEntry > new_entries;
     vector< HostEntry >::iterator itr;
     for( itr = hostIndex.begin(); itr != hostIndex.end(); itr++ ) {
-        HostEntry entry = *itr;
+	HostEntry &entry = *itr;
         if ( entry.logical_offset < offset ) {
             // adjust if necessary and save this one
             if ( (off_t)(entry.logical_offset + entry.length) > offset ) {
-                entry.length = offset - entry.logical_offset + 1;
+		map<pid_t, IOSHandle *>::const_iterator fhitr = fhs.find(entry.id);
+		assert(fhitr != fhs.end());
+		fhitr->second->Fsync();
+		shrinkEntry(&entry, offset, fhitr->second);
             }
             new_entries.push_back( entry );
         }

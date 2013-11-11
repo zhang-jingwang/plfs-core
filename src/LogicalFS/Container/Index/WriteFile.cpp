@@ -636,6 +636,7 @@ plfs_error_t WriteFile::Close()
 plfs_error_t WriteFile::truncate( off_t offset )
 {
     plfs_error_t ret = PLFS_SUCCESS;
+    map<pid_t, IOSHandle *> tmp_fhs;
     Metadata::truncate( offset );
     // we may be the first writer...
     if ( index == NULL ) {
@@ -644,8 +645,12 @@ plfs_error_t WriteFile::truncate( off_t offset )
             return ret;
         }
     }
+    for (map<pid_t,OpenFh>::iterator itr = fhs.begin();
+	 itr != fhs.end(); ++itr) {
+	tmp_fhs[itr->first] = itr->second.fh;
+    }
     Util::MutexLock(   &index_mux , __FUNCTION__);
-    index->truncateHostIndex( offset );
+    index->truncateHostIndex( offset, tmp_fhs );
     Util::MutexUnlock( &index_mux, __FUNCTION__ );
     return PLFS_SUCCESS;
 }
