@@ -143,6 +143,12 @@ class Index : public Metadata, public PLFSIndex
                                    string& path, struct plfs_backend **backp,
                                    bool *hole, pid_t *chunk_id,
                                    off_t logical );
+	plfs_error_t newLookup(off_t logical, IOSHandle **fh, string& path,
+			       struct plfs_backend **backp, pid_t *chunkid,
+			       off_t *chunk_off, size_t *length,
+			       off_t *logical_off, Plfs_checksum *checksum,
+			       off_t *coffset, size_t *clength,
+			       bool *hole);
 
         plfs_error_t insertGlobal( ContainerEntry * );
         void merge( Index *other);

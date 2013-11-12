@@ -464,7 +464,8 @@ Container_fd::release_index(Index *index)
 // @param bytes_read return bytes read
 // returns PLFS_SUCCESS or PLFS_E*
 plfs_error_t
-Container_fd::read(char *buf, size_t size, off_t offset, ssize_t *bytes_read)
+Container_fd::read(char *buf, size_t size, off_t offset, ssize_t *bytes_read,
+		   Plfs_checksum *checksum)
 {
     bool new_index_created = false;
     Index *index = this->fd->getIndex();
@@ -481,7 +482,16 @@ Container_fd::read(char *buf, size_t size, off_t offset, ssize_t *bytes_read)
         index = get_index(new_index_created);
     }
     if ( index != NULL ) {
-        ret = plfs_reader(this->fd,buf,size,offset,index, &len);
+	Plfs_checksum tmp_checksum;
+	if (checksum == NULL) {
+	    ret = plfs_readerc(this->fd,buf,size,offset,index,&len,
+			       &tmp_checksum);
+	    if (ret == PLFS_SUCCESS
+		&& !plfs_checksum_match(buf, len, tmp_checksum))
+		ret = PLFS_EIO;
+	} else {
+	    ret = plfs_readerc(this->fd,buf,size,offset,index,&len,checksum);
+	}
     }
     mlog(PLFS_DAPI, "Read request on %s at offset %ld for %ld bytes: ret %d len %ld",
          this->fd->getPath(),long(offset),long(size),ret, long(len));

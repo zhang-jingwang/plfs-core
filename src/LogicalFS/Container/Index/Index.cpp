@@ -1182,6 +1182,86 @@ Index::globalLookup( IOSHandle **xfh, off_t *chunk_off, size_t *chunk_len,
     return PLFS_SUCCESS;
 }
 
+plfs_error_t
+Index::newLookup(off_t logical, IOSHandle **xfh, string& path,
+		 struct plfs_backend **backp, pid_t *chunkid,
+		 off_t *chunk_off, size_t *length,
+		 off_t *logical_off, Plfs_checksum *checksum,
+		 off_t *coffset, size_t *clength,
+		 bool *hole)
+{
+    mss::mlog_oss os(IDX_DAPI);
+    os << __FUNCTION__ << ": " << this << " using index.";
+    os.commit();
+    *hole = false;
+    *chunkid = (pid_t)-1;
+    // zero length file, nothing to see here, move along
+    if ( global_index.size() == 0 ) {
+	*xfh = NULL;
+	*length = 0;
+	return PLFS_SUCCESS;
+    }
+    MAP_ITR itr = global_index.lower_bound( logical );
+    MAP_ITR prev = global_index.end();
+    // back up if we went off the end
+    if ( itr == global_index.end() ) {
+	// this is safe because we know the size is >= 1
+	// so the worst that can happen is we back up to begin()
+	itr--;
+    }
+    if ( itr != global_index.begin() ) {
+	prev = itr;
+	prev--;
+    }
+    const ContainerEntry &entry = itr->second;
+    plfs_error_t err;
+    if ( entry.contains( logical ) ) {
+	off_t temp_off;
+	size_t temp_len;
+	err = chunkFound( xfh, &temp_off, &temp_len,
+			  logical, path,
+			  backp, chunkid, &entry );
+	*chunk_off = entry.physical_offset;
+	*logical_off = entry.logical_offset;
+	*length = entry.length;
+	*checksum = entry.checksum;
+	*coffset = entry.clogical;
+	*clength = entry.clength;
+	return err;
+    }
+    if ( prev != global_index.end() ) {
+	const ContainerEntry &previous = prev->second;
+	if ( previous.contains( logical ) ) {
+	    off_t temp_off;
+	    size_t temp_len;
+	    err = chunkFound( xfh, &temp_off, &temp_len,
+			      logical, path,
+			      backp, chunkid, &previous );
+	    *chunk_off = previous.physical_offset;
+	    *length = previous.length;
+	    *logical_off = entry.logical_offset;
+	    *checksum = previous.checksum;
+	    *coffset = previous.clogical;
+	    *clength = previous.clength;
+	    return err;
+	}
+    }
+    if ( logical < entry.clogical ) {
+	mss::mlog_oss oss(IDX_DCOMMON);
+	oss << "FOUND(4): " << logical << " is in a hole";
+	oss.commit();
+	off_t remaining_hole_size = entry.clogical - logical;
+	*xfh = NULL;
+	*length = remaining_hole_size;
+	*chunk_off = 0;
+	*hole = true;
+	return PLFS_SUCCESS;
+    }
+    *xfh = NULL;
+    *length = 0;
+    return PLFS_SUCCESS;
+}
+
 // we're just estimating the area of these stl containers which ignores overhead
 size_t
 Index::memoryFootprintMBs()

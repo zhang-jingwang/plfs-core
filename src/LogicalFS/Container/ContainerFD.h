@@ -68,7 +68,8 @@ class Container_fd : public Plfs_fd
         plfs_error_t open(struct plfs_physpathinfo *ppip, int flags, pid_t pid,
                  mode_t mode, Plfs_open_opt *open_opt);
         plfs_error_t close(pid_t, uid_t, int flags, Plfs_close_opt *, int *);
-        plfs_error_t read(char *buf, size_t size, off_t offset, ssize_t *bytes_read);
+	plfs_error_t read(char *buf, size_t size, off_t offset, ssize_t *bytes_read) { return read(buf, size, offset, bytes_read, NULL); }
+	plfs_error_t read(char *buf, size_t size, off_t offset, ssize_t *bytes_read, Plfs_checksum *checksum);
         plfs_error_t renamefd(struct plfs_physpathinfo *ppip_to);
 	plfs_error_t write(const char *buf, size_t size, off_t offset, pid_t pid,
 			   ssize_t *bytes_written);
@@ -101,7 +102,6 @@ class Container_fd : public Plfs_fd
     private:
         Index *get_index(bool &new_index_created);
         bool release_index(Index *index);
-	bool checksum_enabled;
         Container_OpenFile *fd;
 };
 

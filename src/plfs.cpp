@@ -401,6 +401,19 @@ plfs_readx(Plfs_fd *fd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
     return ret;
 }
 
+plfs_error_t
+plfs_readc(Plfs_fd *fd, char *buf, size_t size, off_t offset,
+	   ssize_t *bytes_read, Plfs_checksum *checksum)
+{
+    mss::mlog_oss oss;
+    oss << fd->getPath() << " -> " <<offset << ", " << size;
+    debug_enter(__FUNCTION__,oss.str());
+    memset(buf, (int)'z', size);
+    plfs_error_t ret = fd->read(buf, size, offset, bytes_read, checksum);
+    debug_exit(__FUNCTION__,oss.str(),ret);
+    return ret;
+}
+
 typedef struct {
     set<string> entries;
     set<string>::iterator itr;

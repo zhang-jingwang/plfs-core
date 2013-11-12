@@ -15,11 +15,14 @@ class Plfs_fd
                          mode_t mode, Plfs_open_opt *open_opt) = 0;
         virtual plfs_error_t close(pid_t, uid_t, int flags, Plfs_close_opt *, int *num_ref) = 0;
         virtual plfs_error_t read(char *buf, size_t size, off_t offset, ssize_t *bytes_read) = 0;
+	virtual plfs_error_t read(char *, size_t, off_t, ssize_t *,
+				  Plfs_checksum *) {
+	    return PLFS_ENOSYS; // For flat file and small file modes.
+	}
         virtual plfs_error_t write(const char *buf, size_t size, off_t offset,
                               pid_t pid, ssize_t *bytes_written) = 0;
-	virtual plfs_error_t write(const char *buf, size_t size, off_t offset,
-				   pid_t pid, ssize_t *bytes_written,
-				   Plfs_checksum checksum) {
+	virtual plfs_error_t write(const char *, size_t , off_t , pid_t,
+				   ssize_t *, Plfs_checksum) {
 	    return PLFS_ENOSYS; // For flat file and small file.
 	}
 	virtual plfs_error_t readx(struct iovec *, int,

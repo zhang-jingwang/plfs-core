@@ -21,6 +21,15 @@ public:
                                        string& path, struct plfs_backend **backp,
                                        bool *hole, pid_t *chunk_id,
                                        off_t logical ) = 0;
+    virtual plfs_error_t newLookup(off_t, IOSHandle **, string& ,
+				   struct plfs_backend **, pid_t *,
+				   off_t *, size_t *,
+				   off_t *, Plfs_checksum *,
+				   off_t *, size_t *,
+				   bool *) {
+	return PLFS_ENOSYS;
+    }
+
 };
 
 /**
@@ -39,4 +48,8 @@ plfs_error_t plfs_xreader(void *pfd, struct iovec *iov, int iovcnt,
 plfs_error_t plfs_shard_builder(PLFSIndex *index, off_t offset, size_t size,
                                 int loc_required, plfs_shard **head);
 plfs_error_t free_shard_list(plfs_shard *, int);
+plfs_error_t plfs_readerc(void *unused, char *buf, size_t size,
+			  off_t offset, PLFSIndex *index, ssize_t *bytes_read,
+			  Plfs_checksum *checksum);
+
 #endif

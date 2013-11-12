@@ -3,6 +3,7 @@
 #include "ThreadPool.h"
 #include "mlog_oss.h"
 #include "PLFSIndex.h"
+#include <mchecksum.h>
 
 // a struct for making reads be multi-threaded
 typedef struct {
@@ -14,13 +15,19 @@ typedef struct {
     pid_t chunk_id; // in order to stash fd's back into the index
     string path;
     struct plfs_backend *backend;
+    Plfs_checksum checksum;
+    void *msrc;
+    void *mdst;
+    size_t mlen;
     bool hole;
+    bool partial_read;
 } ReadTask;
 
 // a struct to contain the args to pass to the reader threads
 typedef struct {
     PLFSIndex *index;   // the index needed to get and stash chunk fds
     list<ReadTask> *tasks;   // the queue of tasks
+    list<ReadTask>::iterator titr;
     pthread_mutex_t mux;    // to lock the queue
 } ReaderArgs;
 
@@ -277,9 +284,9 @@ reader_thread( void *va )
     bool tasks_remaining = true;
     while( true ) {
         Util::MutexLock(&(args->mux),__FUNCTION__);
-        if ( ! args->tasks->empty() ) {
-            task = args->tasks->front();
-            args->tasks->pop_front();
+	if ( args->titr != args->tasks->end() ) {
+	    task = *(args->titr);
+	    args->titr++;
         } else {
             tasks_remaining = false;
         }
@@ -314,6 +321,7 @@ parallize_reader(list<ReadTask> &tasks, PLFSIndex *index, ssize_t *bytes_read)
         ReaderArgs args;
         args.index = index;
         args.tasks = &tasks;
+	args.titr = tasks.begin();
         pthread_mutex_init( &(args.mux), NULL );
         size_t num_threads = min((size_t)pconf->threadpool_size,tasks.size());
 	mlog(INT_DCOMMON, "%s %lu THREADS", __FUNCTION__,
@@ -337,9 +345,9 @@ parallize_reader(list<ReadTask> &tasks, PLFSIndex *index, ssize_t *bytes_read)
         }
         pthread_mutex_destroy(&(args.mux));
     } else {
-        while( ! tasks.empty() ) {
-            ReadTask task = tasks.front();
-            tasks.pop_front();
+	for (list<ReadTask>::iterator itr = tasks.begin();
+	     itr != tasks.end(); itr++) {
+	    ReadTask &task = *itr;
             plfs_error_t plfs_ret = perform_read_task( &task, index, &ret );
             if ( plfs_ret != PLFS_SUCCESS ) {
                 plfs_error = plfs_ret;
@@ -352,6 +360,77 @@ parallize_reader(list<ReadTask> &tasks, PLFSIndex *index, ssize_t *bytes_read)
     return plfs_error;
 }
 
+// a helper routine for read to allow it to be multi-threaded when a single
+// logical read spans multiple chunks
+// tasks needs to be a list and not a queue since sometimes it does pop_back
+// here in order to consolidate sequential reads (which can happen if the
+// index is not buffered on the writes)
+plfs_error_t
+find_read_tasksc(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
+		 off_t offset, char *buf)
+{
+    plfs_error_t ret;
+    size_t bytes_remaining = size;
+    size_t bytes_traversed = 0;
+    ReadTask task;
+    do {
+	off_t partial_offset, loffset_itr = offset + bytes_traversed;
+	off_t chunk_start;
+	size_t partial_length;
+	// find a read task
+	ret = index->newLookup(loffset_itr,
+			       &(task.fh),
+			       task.path,
+			       &task.backend,
+			       &(task.chunk_id),
+			       &(task.chunk_offset),
+			       &(task.length),
+			       &chunk_start,
+			       &(task.checksum),
+			       &partial_offset,
+			       &partial_length,
+			       &(task.hole));
+	// make sure it's good
+	if ( ret != PLFS_SUCCESS ) break;
+	// Handle read pass EOF.
+	if (task.length == 0) break;
+	// Handle holes.
+	if (task.hole) {
+	    size_t read_len = min(task.length, bytes_remaining);
+	    task.buf = &(buf[bytes_traversed]);
+	    task.length = read_len;
+	    task.partial_read = false;
+	    bytes_remaining -= read_len;
+	    bytes_traversed += read_len;
+	}
+	if (loffset_itr == chunk_start && partial_length == task.length
+	    && chunk_start == partial_offset && bytes_remaining >= task.length)
+	{
+	    task.buf = &(buf[bytes_traversed]);
+	    task.logical_offset = loffset_itr;
+	    task.partial_read = false;
+	    bytes_remaining -= task.length;
+	    bytes_traversed += task.length;
+	} else {
+	    // partial read.
+	    size_t read_len = partial_offset + partial_length - loffset_itr;
+	    read_len = min(read_len, bytes_remaining);
+	    task.buf = (char *)malloc(task.length);
+	    task.logical_offset = chunk_start;
+	    bytes_remaining -= read_len;
+	    bytes_traversed += read_len;
+	    task.partial_read = true;
+	    off_t buffer_shift = loffset_itr - chunk_start;
+	    task.msrc = &(task.buf[buffer_shift]);
+	    task.mdst = &(buf[bytes_traversed]);
+	    task.mlen = read_len;
+	}
+	tasks->push_back(task);
+	// when chunk_length is 0, that means EOF
+    } while(bytes_remaining);
+    return(ret);
+}
+
 // @param bytes_read returns bytes read
 // returns PLFS_SUCCESS or PLFS_E*
 // TODO: rename this to container_reader or something better
@@ -361,6 +440,29 @@ plfs_reader(void * /* pfd */, char *buf, size_t size, off_t offset,
 {
     plfs_error_t ret;    // for holding temporary return values
     list<ReadTask> tasks;   // a container of read tasks in case the logical
+
+    index->lock(__FUNCTION__); // in case another FUSE thread in here
+    ret = find_read_tasks(index,&tasks,size,offset,buf);
+    index->unlock(__FUNCTION__); // in case another FUSE thread in here
+    // let's leave early if possible to make remaining code cleaner by
+    // not worrying about these conditions
+    // tasks is empty for a zero length file or an EOF
+    if ( ret != PLFS_SUCCESS || tasks.empty() ) {
+	*bytes_read = 0;
+	return ret;
+    }
+
+    return parallize_reader(tasks, index, bytes_read);
+}
+
+
+plfs_error_t
+plfs_readerc(void * /* pfd */, char *buf, size_t size, off_t offset,
+	     PLFSIndex *index, ssize_t *bytes_read, Plfs_checksum *checksum)
+{
+    ssize_t total = 0;  // no bytes read so far
+    plfs_error_t plfs_error = PLFS_SUCCESS;  // no error seen so far
+    list<ReadTask> tasks;   // a container of read tasks in case the logical
     // read spans multiple chunks so we can thread them
     // you might think that this can fail because this call is not in a mutex
     // so you might think it's possible that some other thread in a close is
@@ -369,18 +471,73 @@ plfs_reader(void * /* pfd */, char *buf, size_t size, off_t offset,
     // removes their handle, but no-one can remove the handle being used here
     // except this thread which can't remove it now since it's using it now
     // plfs_reference_count(pfd);
+    assert(size > 0);
     index->lock(__FUNCTION__); // in case another FUSE thread in here
-    ret = find_read_tasks(index,&tasks,size,offset,buf);
+    plfs_error = find_read_tasksc(index,&tasks,size,offset,buf);
     index->unlock(__FUNCTION__); // in case another FUSE thread in here
     // let's leave early if possible to make remaining code cleaner by
     // not worrying about these conditions
     // tasks is empty for a zero length file or an EOF
-    if ( ret != PLFS_SUCCESS || tasks.empty() ) {
-        *bytes_read = 0;
-        return ret;
+    if ( plfs_error != PLFS_SUCCESS || tasks.empty() ) {
+	*bytes_read = 0;
+	return(plfs_error);
+    }
+    plfs_error = parallize_reader(tasks, index, &total);
+    if (plfs_error != PLFS_SUCCESS) {
+	for (list<ReadTask>::iterator itr = tasks.begin();
+	     itr != tasks.end(); itr++) {
+	    if (itr->partial_read) free(itr->buf);
+	}
+	return plfs_error;
     }
 
-    return parallize_reader(tasks, index, bytes_read);
+    // Read is done, accumulate the checksum now.
+    if (tasks.size() == 1) { // Shortcut for a single read task.
+	ReadTask &task = tasks.front();
+	if (!task.partial_read && !task.hole) {
+	    *bytes_read = total;
+	    *checksum = task.checksum;
+	    return plfs_error;
+	}
+    }
+    mchecksum_object_t new_checksum;
+    mchecksum_init("crc64", &new_checksum);
+    for (list<ReadTask>::iterator itr = tasks.begin();
+	 itr != tasks.end(); itr++) {
+	ReadTask &task = *itr;
+	void *cdata;
+	size_t csize;
+	if (task.partial_read) {
+	    cdata = task.msrc;
+	    csize = task.mlen;
+	} else {
+	    cdata = task.buf;
+	    csize = task.length;
+	}
+	mchecksum_update(new_checksum, cdata, csize);
+    }
+    mchecksum_get(new_checksum, checksum, sizeof(*checksum), 1);
+    // Now verify the buffers read from index entries.
+    for (list<ReadTask>::iterator itr = tasks.begin();
+	 itr != tasks.end(); itr++) {
+	ReadTask &task = *itr;
+	if (task.hole) {
+	    char *cbuf = (char *)task.buf;
+	    for (size_t citr = 0; citr < task.length; citr++)
+		if (cbuf[citr] != 0) plfs_error = PLFS_EIO;
+	    continue;
+	}
+	if (task.partial_read) {
+	    memcpy(task.mdst, task.msrc, task.mlen);
+	    total -= task.length - task.mlen;
+	}
+	if (!plfs_checksum_match(task.buf, task.length, task.checksum)) {
+	    plfs_error = PLFS_EIO;
+	}
+	if (task.partial_read) free(task.buf);
+    }
+    *bytes_read = total;
+    return plfs_error;
 }
 
 // this is a helper function for reading file contents described by logical

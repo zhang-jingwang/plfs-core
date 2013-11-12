@@ -87,7 +87,8 @@ class WriteFile : public Metadata
         plfs_error_t prepareForWrite( ) {
             return prepareForWrite( open_pid );
         }
-	plfs_error_t writeIndex(off_t, ssize_t, double, double, pid_t);
+	plfs_error_t writeIndex(off_t, ssize_t, double, double, pid_t,
+				Plfs_checksum);
 
         pid_t open_pid;
         /*
