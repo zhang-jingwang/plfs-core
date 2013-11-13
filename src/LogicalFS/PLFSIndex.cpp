@@ -26,7 +26,7 @@ typedef struct {
 
 
 // free the shard list produced by build_shard_list
-int
+plfs_error_t
 free_shard_list(plfs_shard *head, int loc_required)
 {
     plfs_shard *shard;
@@ -36,7 +36,7 @@ free_shard_list(plfs_shard *head, int loc_required)
 	if(loc_required) free(shard->location);
 	delete shard;
     }
-    return 0;
+    return PLFS_SUCCESS;
 }
 
 // a helper routine to convert a list of read tasks into logical valid ranges.
@@ -100,7 +100,7 @@ build_shrad_list(list<ReadTask> *tasks, plfs_shard **head,
 	}
     }
 
-    if(ret != 0) free_shard_list(*head, loc_required);
+    if(ret != PLFS_SUCCESS) free_shard_list(*head, loc_required);
 
     return ret;
 }
@@ -181,7 +181,7 @@ find_read_tasks(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
 }
 
 /* ret 0 or -err */
-int
+plfs_error_t
 plfs_shard_builder(PLFSIndex *index, off_t offset, size_t size,
 		   int loc_required, plfs_shard **head)
 {
@@ -290,7 +290,7 @@ reader_thread( void *va )
         plfs_error_t err = perform_read_task( &task, args->index, &ret );
         if ( err != PLFS_SUCCESS ) {
             ret = (ssize_t)(-err);
-           break;
+            break;
         } else {
             total += ret;
         }
@@ -390,7 +390,7 @@ plfs_reader(void * /* pfd */, char *buf, size_t size, off_t offset,
 // out all read units first and then use multi-thread for performance.
 // returns -err or bytes read
 plfs_error_t
-plfs_xreader(void *pfd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
+plfs_xreader(void *, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
 	     int xvcnt, PLFSIndex *index, ssize_t *bytes_read)
 {
     int i, j;

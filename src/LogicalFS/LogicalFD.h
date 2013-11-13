@@ -17,14 +17,14 @@ class Plfs_fd
         virtual plfs_error_t read(char *buf, size_t size, off_t offset, ssize_t *bytes_read) = 0;
         virtual plfs_error_t write(const char *buf, size_t size, off_t offset,
                               pid_t pid, ssize_t *bytes_written) = 0;
-	virtual plfs_error_t readx(struct iovec *iov, int iovcnt,
-                                   plfs_xvec *xvec, int xvcnt, ssize_t *rbytes)
+	virtual plfs_error_t readx(struct iovec *, int,
+                                   plfs_xvec *, int, ssize_t *)
 	{
 	    return PLFS_ENOSYS;
 	}
-	virtual plfs_error_t writex(struct iovec *iov, int iovcnt,
-                                    plfs_xvec *xvec, int xvcnt,
-                                    pid_t pid, ssize_t *wbytes)
+	virtual plfs_error_t writex(struct iovec *, int,
+                                    plfs_xvec *, int,
+                                    pid_t, ssize_t *)
 	{
 	    return PLFS_ENOSYS;
 	}
@@ -55,12 +55,11 @@ class Plfs_fd
         // for open files, so we need a way to update the paths
         virtual plfs_error_t renamefd(struct plfs_physpathinfo *ppip_to) = 0;
 
-	virtual plfs_error_t query_shard(off_t offset, size_t size, plfs_shard **shard,
-				int loc_required)
+	virtual plfs_error_t query_shard(off_t, size_t, plfs_shard **, int)
 	{
 	    return PLFS_ENOSYS;
 	}
-	virtual plfs_error_t free_shard(plfs_shard *shard, int loc_required)
+	virtual plfs_error_t free_shard(plfs_shard *, int)
 	{
 	    return PLFS_ENOSYS;
 	}

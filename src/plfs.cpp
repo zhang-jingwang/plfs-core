@@ -387,7 +387,7 @@ plfs_read(Plfs_fd *fd, char *buf, size_t size, off_t offset, ssize_t *bytes_read
     return ret;
 }
 
-ssize_t
+plfs_error_t
 plfs_readx(Plfs_fd *fd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
 	   int xvcnt, ssize_t *rbytes)
 {
@@ -714,7 +714,7 @@ plfs_write(Plfs_fd *fd, const char *buf, size_t size,
     return wret;
 }
 
-ssize_t
+plfs_error_t
 plfs_writex(Plfs_fd *fd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
 	    int xvcnt, pid_t pid, ssize_t *wbytes)
 {

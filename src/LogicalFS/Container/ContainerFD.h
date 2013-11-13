@@ -93,6 +93,8 @@ class Container_fd : public Plfs_fd
         plfs_error_t extend(off_t offset);
         
     private:
+        Index *get_index(bool &new_index_created);
+        bool release_index(Index *index);
         Container_OpenFile *fd;
 };
 

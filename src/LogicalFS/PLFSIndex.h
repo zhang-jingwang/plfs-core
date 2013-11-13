@@ -32,10 +32,11 @@ public:
 plfs_error_t plfs_reader(void *unused, char *buf, size_t size,
                          off_t offset, PLFSIndex *index, ssize_t *bytes_read);
 
-size_t plfs_xreader(void *pfd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
-		     int xvcnt, PLFSIndex *index);
+plfs_error_t plfs_xreader(void *pfd, struct iovec *iov, int iovcnt,
+                          plfs_xvec *xvec, int xvcnt, PLFSIndex *index,
+                          ssize_t *bytes_read);
 
-int plfs_shard_builder(PLFSIndex *index, off_t offset, size_t size,
-		       int loc_required, plfs_shard **head);
-int free_shard_list(plfs_shard *, int);
+plfs_error_t plfs_shard_builder(PLFSIndex *index, off_t offset, size_t size,
+                                int loc_required, plfs_shard **head);
+plfs_error_t free_shard_list(plfs_shard *, int);
 #endif

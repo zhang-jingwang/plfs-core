@@ -167,7 +167,8 @@ typedef void *Plfs_dirp;
                                  int loc_required);
 
 
-    ssize_t plfs_readx( Plfs_fd *, struct iovec *, int, plfs_xvec *, int);
+    plfs_error_t plfs_readx( Plfs_fd *, struct iovec *, int, plfs_xvec *, int,
+                             ssize_t *);
 
     /* plfs_readdir
      * the void * needs to be a pointer to a vector<string> but void * is
@@ -218,8 +219,8 @@ typedef void *Plfs_dirp;
 
     // total length of memory segments in iovec list should be less than or
     // equal to total length of all plfs_xvecs.
-    ssize_t plfs_writex ( Plfs_fd *, struct iovec *, int, plfs_xvec *, int,
-			  pid_t);
+    plfs_error_t plfs_writex ( Plfs_fd *, struct iovec *, int, plfs_xvec *,
+                               int, pid_t, ssize_t *);
 
     // something needed for MPI-IO to know to avoid optimizations unless
     // in container mode

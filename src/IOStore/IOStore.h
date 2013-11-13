@@ -77,7 +77,7 @@ class IOSHandle {
     virtual plfs_error_t ReleaseDataBuf(void *buf, size_t length)=0;
     virtual plfs_error_t Size(off_t *ret_offset)=0;
     virtual plfs_error_t Write(const void *buf, size_t nbytes, ssize_t *bytes_written)=0;
-    virtual plfs_error_t Writev(struct iovec *iov, int iovcnt, ssize_t *bytes_written){
+    virtual plfs_error_t Writev(struct iovec *, int , ssize_t *){
 	return PLFS_ENOSYS;
     }
     virtual ~IOSHandle() { }

@@ -414,6 +414,51 @@ Container_fd::close(pid_t pid, uid_t uid, int open_flags,
     return ret;
 }
 
+Index *
+Container_fd::get_index(bool &new_index_created)
+{
+    Index *index = new Index(this->fd->getPath(), this->fd->getCanBack());
+    if ( index ) {
+        // if they tried to do uniform restart, it will only work at open
+        // uniform restart doesn't currently work with O_RDWR
+        // to make it work, we'll have to store the uniform restart info
+        // into the Container_OpenFile
+        plfs_error_t ret = Container::populateIndex(this->fd->getPath(),
+                                                    this->fd->getCanBack(),
+                                                    index,false,false,0);
+        if (ret != PLFS_SUCCESS) {
+            delete index;
+            index = NULL;
+            new_index_created = false;
+        } else {
+            new_index_created = true;
+        }
+    }
+    return index;
+
+}
+
+bool
+Container_fd::release_index(Index *index)
+{
+    bool delete_index = true;
+    if (cache_index_on_rdwr) {
+        this->fd->lockIndex();
+        if (this->fd->getIndex()==NULL) { // no-one else cached one
+            this->fd->setIndex(index);
+            delete_index = false;
+        }
+        this->fd->unlockIndex();
+    }
+    if (delete_index) {
+        delete(index);
+    }
+    mlog(PLFS_DCOMMON, "%s %s freshly created index for %s",
+         __FUNCTION__, delete_index?"removing":"caching",
+         this->fd->getPath());
+    return delete_index;
+}
+
 // @param bytes_read return bytes read
 // returns PLFS_SUCCESS or PLFS_E*
 plfs_error_t
@@ -431,42 +476,16 @@ Container_fd::read(char *buf, size_t size, off_t offset, ssize_t *bytes_read)
     // so that new writes are re-indexed for new reads
     // basically O_RDWR is possible but it can reduce read BW
     if (index == NULL) {
-        index = new Index(this->fd->getPath(), this->fd->getCanBack());
-        if ( index ) {
-            // if they tried to do uniform restart, it will only work at open
-            // uniform restart doesn't currently work with O_RDWR
-            // to make it work, we'll have to store the uniform restart info
-            // into the Container_OpenFile
-            new_index_created = true;
-            ret = Container::populateIndex(this->fd->getPath(),
-                                           this->fd->getCanBack(),
-                                           index,false,false,0);
-        } else {
-            ret = PLFS_EIO;
-        }
+        index = get_index(new_index_created);
     }
-    if ( ret == PLFS_SUCCESS ) {
+    if ( index != NULL ) {
         ret = plfs_reader(this->fd,buf,size,offset,index, &len);
     }
     mlog(PLFS_DAPI, "Read request on %s at offset %ld for %ld bytes: ret %d len %ld",
          this->fd->getPath(),long(offset),long(size),ret, long(len));
     // we created a new index.  Maybe we cache it or maybe we destroy it.
     if (new_index_created) {
-        bool delete_index = true;
-        if (cache_index_on_rdwr) {
-            this->fd->lockIndex();
-            if (this->fd->getIndex()==NULL) { // no-one else cached one
-                this->fd->setIndex(index);
-                delete_index = false;
-            }
-            this->fd->unlockIndex();
-        }
-        if (delete_index) {
-            delete(index);
-        }
-        mlog(PLFS_DCOMMON, "%s %s freshly created index for %s",
-             __FUNCTION__, delete_index?"removing":"caching",
-             this->fd->getPath());
+        release_index(index);
     }
     *bytes_read = len;
     return(ret);
@@ -525,16 +544,55 @@ plfs_error_t
 Container_fd::readx(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
                     ssize_t *bytes_read)
 {
-    //    return container_readx(fd, iov, iovcnt, xvec, xvcnt, bytes_read);
-    return PLFS_SUCCESS;
+    bool new_index_created = false;
+    Index *index = this->fd->getIndex();
+    ssize_t len = -1;
+    plfs_error_t ret = PLFS_SUCCESS;
+    // possible that we opened the file as O_RDWR
+    // if so, we may not have a persistent index
+    // build an index now, but destroy it after this IO
+    // so that new writes are re-indexed for new reads
+    // basically O_RDWR is possible but it can reduce read BW
+    if (index == NULL) {
+        index = get_index(new_index_created);
+    }
+    if ( index != NULL ) {
+        ret = plfs_xreader(this->fd,iov,iovcnt,xvec,xvcnt,index,&len);
+    }
+    // we created a new index.  Maybe we cache it or maybe we destroy it.
+    if (new_index_created) {
+        release_index(index);
+    }
+    *bytes_read = len;
+    return(ret);
 }
 
 plfs_error_t
 Container_fd::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
 		     pid_t pid, ssize_t *bytes_written)
 {
-    //    return container_writex(fd, iov, iovcnt, xvec, xvcnt, pid, bytes_written);
-    return PLFS_SUCCESS;
+    Container_OpenFile *pfd = this->fd;
+    size_t iovLen = 0, xvecLen = 0;
+    plfs_error_t ret = PLFS_SUCCESS;
+    // calculate total size of memory segments and logical ranges
+    for(int i=0; i<iovcnt; i++){
+        iovLen += iov[i].iov_len; // total size for memory segments
+    }
+    for(int j=0; j<xvcnt; j++){
+        xvecLen += xvec[j].len; // total size for logical ranges
+    }
+    // iovLen should be less than or equal to xvecLen.
+    if(iovLen > xvecLen) return PLFS_EINVAL;
+
+    if(iovLen != 0){
+        WriteFile *wf = pfd->getWritefile();
+        ret = wf->writex(iov, iovcnt, xvec, xvcnt, pid, bytes_written);
+    }
+
+    mlog(PLFS_DAPI, "%s: Wrote to %s, size %ld", __FUNCTION__,
+         pfd->getPath(), (long)*bytes_written);
+    
+    return ret;
 }
 
 plfs_error_t
@@ -749,14 +807,34 @@ plfs_error_t
 Container_fd::query_shard(off_t offset, size_t size, plfs_shard **shard,
 			  int loc_required)
 {
-    //    return container_query_shard(fd, offset, size, shard, loc_required);
-    return PLFS_SUCCESS;
+    bool new_index_created = false;
+    Index *index = this->fd->getIndex();
+    plfs_error_t ret = PLFS_SUCCESS;
+    if (index == NULL) {
+        index = get_index(new_index_created);
+    }
+    if ( index != NULL ) {
+        plfs_shard_builder(index, offset, size, loc_required, shard);
+    }
+
+    // we created a new index.  Maybe we cache it or maybe we destroy it.
+    if (new_index_created) {
+        release_index(index);
+    }
+    return(ret);
 }
 
 plfs_error_t
 Container_fd::free_shard(plfs_shard *shard, int loc_required)
 {
-    return PLFS_SUCCESS;
+    plfs_error_t ret = PLFS_SUCCESS;
+    mlog(PLFS_DAPI, "%s: shard head %p, loc_required %d\n", __FUNCTION__,
+         shard, loc_required);
+
+    ret = free_shard_list(shard, loc_required);
+    mlog(PLFS_DAPI, "%s: ret %d\n", __FUNCTION__, ret);
+
+    return ret;
 }
 
 bool

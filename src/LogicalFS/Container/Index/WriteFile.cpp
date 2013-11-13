@@ -508,23 +508,8 @@ WriteFile::write(const char *buf, size_t size, off_t offset, pid_t pid, ssize_t 
         end = Util::getTime();
         // then the index
         if ( ret == PLFS_SUCCESS ) {
-            write_count++;
             Util::MutexLock(   &index_mux , __FUNCTION__);
-            index->addWrite( offset, written, pid, begin, end );
-            // TODO: why is 1024 a magic number?
-            int flush_count = 1024;
-            if (write_count%flush_count==0) {
-                ret = index->flush();
-                // Check if the index has grown too large stop buffering
-                if(index->memoryFootprintMBs() > index_buffer_mbs) {
-                    index->stopBuffering();
-                    mlog(WF_DCOMMON, "The index grew too large, "
-                         "no longer buffering");
-                }
-            }
-            if (ret == PLFS_SUCCESS) {
-                addWrite(offset, size);    // track our own metadata
-            }
+            ret = writeIndex(offset, written, begin, end, pid);
             Util::MutexUnlock( &index_mux, __FUNCTION__ );
         }
     }
