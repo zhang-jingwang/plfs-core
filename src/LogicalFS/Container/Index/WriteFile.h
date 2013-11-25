@@ -57,6 +57,8 @@ class WriteFile : public Metadata
 			    Plfs_checksum cksum);
 	plfs_error_t writex(struct iovec *, int, plfs_xvec *, int, pid_t,
                             ssize_t *);
+	plfs_error_t writex(struct iovec *, int, plfs_xvec *, int, pid_t,
+                            Plfs_checksum *, ssize_t *);
 
         plfs_error_t sync( );
         plfs_error_t sync( pid_t pid );

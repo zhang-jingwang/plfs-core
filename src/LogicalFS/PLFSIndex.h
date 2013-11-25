@@ -44,6 +44,9 @@ plfs_error_t plfs_reader(void *unused, char *buf, size_t size,
 plfs_error_t plfs_xreader(void *pfd, struct iovec *iov, int iovcnt,
                           plfs_xvec *xvec, int xvcnt, PLFSIndex *index,
                           ssize_t *bytes_read);
+plfs_error_t plfs_xreaderc(void *pfd, struct iovec *iov, int iovcnt,
+                           plfs_xvec *xvec, int xvcnt, PLFSIndex *index,
+                           ssize_t *bytes_read, Plfs_checksum *cs);
 
 plfs_error_t plfs_shard_builder(PLFSIndex *index, off_t offset, size_t size,
                                 int loc_required, plfs_shard **head);

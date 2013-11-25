@@ -46,4 +46,38 @@ private:
 	gid_t gid;
 };
 
+class PlfsFileUnit : public CPPUNIT_NS::TestFixture
+{
+	CPPUNIT_TEST_SUITE (PlfsFileUnit);
+	CPPUNIT_TEST (RWSliceTest);
+	CPPUNIT_TEST (RWMergeTest);
+        CPPUNIT_TEST (RWXTest);
+        CPPUNIT_TEST (RWXSliceTestW);
+        CPPUNIT_TEST (RWXSliceTestR);
+        CPPUNIT_TEST (RWXMergeTest);
+        CPPUNIT_TEST (RWXChecksum);
+        CPPUNIT_TEST (RWXWrongChecksum);
+        CPPUNIT_TEST (RWXSliceChecksum);
+        CPPUNIT_TEST (RWXSliceMergeChecksum);
+	CPPUNIT_TEST_SUITE_END ();
+public:
+        void setUp (void);
+        void tearDown (void);
+
+protected:
+        void RWSliceTest();
+        void RWMergeTest();
+        void RWXTest();
+        void RWXSliceTestW();
+        void RWXSliceTestR();
+        void RWXMergeTest();
+        void RWXChecksum();
+        void RWXWrongChecksum();
+        void RWXSliceChecksum();
+        void RWXSliceMergeChecksum();
+private:
+        Plfs_fd *filedes;
+        pid_t pid;
+};
+
 #endif

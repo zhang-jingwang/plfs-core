@@ -487,8 +487,12 @@ Container_fd::read(char *buf, size_t size, off_t offset, ssize_t *bytes_read,
 	    ret = plfs_readerc(this->fd,buf,size,offset,index,&len,
 			       &tmp_checksum);
 	    if (ret == PLFS_SUCCESS
-		&& !plfs_checksum_match(buf, len, tmp_checksum))
+		&& plfs_checksum_match(buf, len, tmp_checksum)) {
+                mlog(INT_ERR, "Wrong checksum %lu@%lx, checksum:0x%llx.",
+                     (unsigned long)len, (unsigned long)offset,
+                     (unsigned long long)tmp_checksum);
 		ret = PLFS_EIO;
+            }
 	} else {
 	    ret = plfs_readerc(this->fd,buf,size,offset,index,&len,checksum);
 	}
@@ -524,24 +528,11 @@ Container_fd::write(const char *buf, size_t size, off_t offset, pid_t pid,
     Plfs_checksum tmp_checksum = 0xDA7A0150BAD0;
     Container_OpenFile *pfd = this->fd;
     bool checksum_enabled = pfd->checksumEnabled();
-    if (checksum_enabled) {
-	mchecksum_object_t mchecksum;
-	int ret;
-	ret = mchecksum_init("crc64", &mchecksum);
-	if (ret < 0) return PLFS_EFAULT;
-	ret = mchecksum_update(mchecksum, buf, size);
-	if (ret < 0) {
-	    mchecksum_destroy(mchecksum);
-	    return PLFS_EFAULT;
-	}
-	ret = mchecksum_get(mchecksum, &tmp_checksum, sizeof(tmp_checksum), 1);
-	if (ret < 0) {
-	    mchecksum_destroy(mchecksum);
-	    return PLFS_EFAULT;
-        }
-	mchecksum_destroy(mchecksum);
-    }
     plfs_error_t ret = PLFS_SUCCESS;
+    if (checksum_enabled) {
+        ret = plfs_get_checksum(buf, size, &tmp_checksum);
+        if (ret != PLFS_SUCCESS) return ret;
+    }
     ssize_t written;
     WriteFile *wf = pfd->getWritefile();
     ret = wf->write(buf, size, offset, pid, &written, tmp_checksum);
@@ -569,7 +560,7 @@ Container_fd::write(const char *buf, size_t size, off_t offset, pid_t pid,
          __FUNCTION__, pfd->getPath(), (long)offset, (long)size, (long)ret);
     *bytes_written = written;
     if (written < 0 || (size_t)written != size
-	|| !plfs_checksum_match(buf, size, checksum))
+	|| plfs_checksum_match(buf, size, checksum))
 	ret = PLFS_EIO; // Disallow partial or mismatched write.
     return(ret);
 }
@@ -602,12 +593,59 @@ Container_fd::readx(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
 }
 
 plfs_error_t
+Container_fd::readx(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
+                    Plfs_checksum *cs, ssize_t *bytes_read)
+{
+    bool new_index_created = false;
+    Index *index = this->fd->getIndex();
+    ssize_t len = -1;
+    plfs_error_t ret = PLFS_SUCCESS;
+    // possible that we opened the file as O_RDWR
+    // if so, we may not have a persistent index
+    // build an index now, but destroy it after this IO
+    // so that new writes are re-indexed for new reads
+    // basically O_RDWR is possible but it can reduce read BW
+    if (index == NULL) {
+        index = get_index(new_index_created);
+    }
+    if ( index != NULL ) {
+        ret = plfs_xreaderc(this->fd,iov,iovcnt,xvec,xvcnt,index,&len,cs);
+    }
+    // we created a new index.  Maybe we cache it or maybe we destroy it.
+    if (new_index_created) {
+        release_index(index);
+    }
+    *bytes_read = len;
+    return(ret);
+}
+
+plfs_error_t
 Container_fd::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
 		     pid_t pid, ssize_t *bytes_written)
 {
     Container_OpenFile *pfd = this->fd;
+    plfs_error_t ret = PLFS_SUCCESS;
+    // calculate total size of memory segments and logical ranges
+
+    ret = writex(iov, iovcnt, xvec, xvcnt, pid, NULL, bytes_written);
+    if (ret == PLFS_EBADF) { // checksum disabled.
+        WriteFile *wf = pfd->getWritefile();
+        ret = wf->writex(iov, iovcnt, xvec, xvcnt, pid, bytes_written);
+        mlog(PLFS_DAPI, "%s: Wrote to %s, size %ld", __FUNCTION__,
+             pfd->getPath(), (long)*bytes_written);
+    }
+    return ret;
+}
+
+plfs_error_t
+Container_fd::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
+		     pid_t pid, Plfs_checksum *cs, ssize_t *bytes_written)
+{
+    Container_OpenFile *pfd = this->fd;
     size_t iovLen = 0, xvecLen = 0;
     plfs_error_t ret = PLFS_SUCCESS;
+    bool checksum_enabled = pfd->checksumEnabled();
+    if (!checksum_enabled) return PLFS_EBADF;
     // calculate total size of memory segments and logical ranges
     for(int i=0; i<iovcnt; i++){
         iovLen += iov[i].iov_len; // total size for memory segments
@@ -617,15 +655,37 @@ Container_fd::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
     }
     // iovLen should be less than or equal to xvecLen.
     if(iovLen > xvecLen) return PLFS_EINVAL;
+    Plfs_checksum *tmp_checksum = NULL;
+    if (cs == NULL) {
+        tmp_checksum = new Plfs_checksum[iovcnt];
+        for (int i = 0; i < iovcnt; i++) {
+            ret = plfs_get_checksum((const char *)iov[i].iov_base,
+                                    iov[i].iov_len,
+                                    &tmp_checksum[i]);
+            if (ret != PLFS_SUCCESS) {
+                delete []tmp_checksum;
+                return ret;
+            }
+        }
+        cs = tmp_checksum;
+    }
 
     if(iovLen != 0){
         WriteFile *wf = pfd->getWritefile();
-        ret = wf->writex(iov, iovcnt, xvec, xvcnt, pid, bytes_written);
+        ret = wf->writex(iov, iovcnt, xvec, xvcnt, pid, cs, bytes_written);
     }
 
     mlog(PLFS_DAPI, "%s: Wrote to %s, size %ld", __FUNCTION__,
          pfd->getPath(), (long)*bytes_written);
-    
+    if (tmp_checksum) {
+        delete []tmp_checksum;
+    } else {
+        for (int i = 0; i < iovcnt; i++) {
+            if (plfs_checksum_match((const char *)iov[i].iov_base,
+                                    iov[i].iov_len, cs[i]))
+                return PLFS_EIO;
+        }
+    }
     return ret;
 }
 

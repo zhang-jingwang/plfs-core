@@ -402,6 +402,20 @@ plfs_readx(Plfs_fd *fd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
 }
 
 plfs_error_t
+plfs_readxc(Plfs_fd *fd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
+            int xvcnt, ssize_t *rbytes, Plfs_checksum *cs)
+{
+    mss::mlog_oss oss;
+    debug_enter(__FUNCTION__,oss.str());
+    plfs_error_t ret = PLFS_SUCCESS;
+    if (iovcnt > 0 && xvcnt > 0){
+	ret = fd->readx(iov, iovcnt, xvec, xvcnt, cs, rbytes);
+    }
+    debug_exit(__FUNCTION__,oss.str(),ret);
+    return ret;
+}
+
+plfs_error_t
 plfs_readc(Plfs_fd *fd, char *buf, size_t size, off_t offset,
 	   ssize_t *bytes_read, Plfs_checksum *checksum)
 {
@@ -759,6 +773,20 @@ plfs_writex(Plfs_fd *fd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
     plfs_error_t ret = PLFS_SUCCESS;
     if (iovcnt > 0 && xvcnt > 0){
 	ret = fd->writex(iov, iovcnt, xvec, xvcnt, pid, wbytes);
+    }
+    debug_exit(__FUNCTION__,oss.str(), ret);
+    return ret;
+}
+
+plfs_error_t
+plfs_writexc(Plfs_fd *fd, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
+             int xvcnt, pid_t pid, ssize_t *wbytes, Plfs_checksum *cs)
+{
+    mss::mlog_oss oss(PLFS_DAPI);
+    debug_enter(__FUNCTION__,oss.str());
+    plfs_error_t ret = PLFS_SUCCESS;
+    if (iovcnt > 0 && xvcnt > 0){
+	ret = fd->writex(iov, iovcnt, xvec, xvcnt, pid, cs, wbytes);
     }
     debug_exit(__FUNCTION__,oss.str(), ret);
     return ret;

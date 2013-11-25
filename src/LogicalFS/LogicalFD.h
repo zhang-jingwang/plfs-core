@@ -30,9 +30,20 @@ class Plfs_fd
 	{
 	    return PLFS_ENOSYS;
 	}
+	virtual plfs_error_t readx(struct iovec *, int, plfs_xvec *, int,
+                                   Plfs_checksum *, ssize_t *)
+	{
+	    return PLFS_ENOSYS;
+	}
 	virtual plfs_error_t writex(struct iovec *, int,
                                     plfs_xvec *, int,
                                     pid_t, ssize_t *)
+	{
+	    return PLFS_ENOSYS;
+	}
+	virtual plfs_error_t writex(struct iovec *, int,
+                                     plfs_xvec *, int,
+                                     pid_t, Plfs_checksum *, ssize_t *)
 	{
 	    return PLFS_ENOSYS;
 	}

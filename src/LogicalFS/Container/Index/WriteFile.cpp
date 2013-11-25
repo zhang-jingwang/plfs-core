@@ -559,6 +559,61 @@ WriteFile::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
     return ret;
 }
 
+plfs_error_t
+WriteFile::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
+		  pid_t pid, Plfs_checksum * /*cs*/, ssize_t *bytes_written)
+{
+    plfs_error_t ret = PLFS_SUCCESS;
+    ssize_t written;
+
+    ret = prepareForWrite( pid );
+    if ( ret == PLFS_SUCCESS ) {
+	OpenFh *ofh = getFh( pid );
+	IOSHandle *wfh = ofh->fh;
+	// write the data file
+	double begin, end;
+	begin = Util::getTime();
+	ret = wfh->Writev(iov, iovcnt, &written);
+	end = Util::getTime();
+	// then the index
+	if ( ret == PLFS_SUCCESS ) {
+	    size_t iovLen = 0; // total size of all memory segments in iov
+	    size_t bytes_traversed = 0; // number of bytes traversed along xvec
+	    size_t length = 0; // size of each index entry
+            struct iovec *ranges = new iovec[xvcnt];
+	    for(int i=0; i<iovcnt; i++){
+		iovLen += iov[i].iov_len;
+            }
+            for(int i=0; i<xvcnt; i++){
+                ranges[i].iov_len = xvec[i].len;
+            }
+            Plfs_checksum *tmpcs = new Plfs_checksum[xvcnt];
+            ret = plfs_recalc_checksum(iov, iovcnt, ranges, tmpcs, xvcnt, 0);
+            if (ret == PLFS_SUCCESS) {
+                Util::MutexLock(   &index_mux , __FUNCTION__);
+                for(int i=0; i<xvcnt; i++){
+                    assert(bytes_traversed < iovLen
+                           && xvec[i].len <= iovLen - bytes_traversed);
+                    if(bytes_traversed < iovLen){
+                        length = min(xvec[i].len, iovLen-bytes_traversed);
+                    }
+                    ret = writeIndex(xvec[i].offset, length, begin, end, pid,
+                                     tmpcs[i]);
+                    bytes_traversed += length;
+                    // don't write more data than iovLen. Just left the
+                    // remainder of xvec unchanged.
+                    if(ret < 0 || bytes_traversed >= iovLen) break;
+                }
+                Util::MutexUnlock( &index_mux, __FUNCTION__ );
+            }
+            delete []ranges;
+            delete []tmpcs;
+        }
+    }
+    *bytes_written = written;
+    return ret;
+}
+
 // this assumes that the hostdir exists and is full valid path
 // returns PLFS_SUCCESS or PLFS_E*
 plfs_error_t WriteFile::openIndex( pid_t pid )

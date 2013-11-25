@@ -9,7 +9,7 @@ extern "C"
 #endif
 
 typedef enum {
-    PLFS_SUCCESS,
+    PLFS_SUCCESS = 0,
     PLFS_EPERM,
     PLFS_ENOENT,
     PLFS_ESRCH,

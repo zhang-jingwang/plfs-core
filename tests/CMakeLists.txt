@@ -14,7 +14,7 @@ foreach (SOURCE access.C rename.C)
     endif(BUILD_IOFSL)
 endforeach(SOURCE)
 
-# find_package(CPPUNIT)
+find_package(CPPUNIT)
 if (CPPUNIT_FOUND)
     foreach (SOURCE plfsunit.cpp smallfileunit.cpp)
         get_filename_component(PROG ${SOURCE} NAME_WE)

@@ -5,9 +5,11 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 CPPUNIT_TEST_SUITE_REGISTRATION(PlfsUnit);
+CPPUNIT_TEST_SUITE_REGISTRATION(PlfsFileUnit);
 
 extern string plfsmountpoint;
 
@@ -124,6 +126,7 @@ PlfsUnit::readWriteTest() {
 	    ret = plfs_sync(fd);
 	    CPPUNIT_ASSERT_EQUAL(0, (int)ret);
 	    ret = plfs_read(fd, rbuf, 13, offset, &written);
+            CPPUNIT_ASSERT_EQUAL(0, (int)ret);
 	    CPPUNIT_ASSERT_EQUAL(13, (int)written);
 	    CPPUNIT_ASSERT(strcmp(rbuf, "HELLO WORLD.") == 0);
 	}
@@ -197,7 +200,7 @@ PlfsUnit::chmodDirTest() {
         CPPUNIT_ASSERT_EQUAL(mode, (mode_t)(result & 0777));
     }
     ret = plfs_rmdir(pathname, 0);
-    CPPUNIT_ASSERT_EQUAL(0, ret);
+    CPPUNIT_ASSERT_EQUAL(0, (int)ret);
 }
 
 void
@@ -336,9 +339,9 @@ PlfsUnit::renameTest() {
     ret = plfs_unlink(path.c_str());
     CPPUNIT_ASSERT_EQUAL(0, (int)ret);
     ret = plfs_unlink(path2.c_str());
-    CPPUNIT_ASSERT_EQUAL(0, ret);
+    CPPUNIT_ASSERT_EQUAL(0, (int)ret);
     ret = plfs_rmdir(path3.c_str(), 0);
-    CPPUNIT_ASSERT_EQUAL(0, ret);
+    CPPUNIT_ASSERT_EQUAL(0, (int)ret);
 }
 
 void
@@ -363,19 +366,19 @@ PlfsUnit::dirTest() {
 	}
     }
     ret = plfs_rmdir(pathname, 0);
-    CPPUNIT_ASSERT_EQUAL(-ENOTEMPTY, ret);
+    CPPUNIT_ASSERT_EQUAL(PLFS_ENOTEMPTY, ret);
     ret = plfs_readdir(pathname, &readres);
     CPPUNIT_ASSERT_EQUAL(0, (int)ret);
     for (it=readres.begin() ; it != readres.end(); it++) {
 	if (*it == "." || *it == "..") continue;
 	string fullpath = path + "/" + *it;
 	ret = plfs_rmdir(fullpath.c_str(), 0);
-	CPPUNIT_ASSERT_EQUAL(0, ret);
+	CPPUNIT_ASSERT_EQUAL(0, (int)ret);
 	dents.erase("/" + *it);
     }
     CPPUNIT_ASSERT(dents.empty());
     ret = plfs_rmdir(pathname, 0);
-    CPPUNIT_ASSERT_EQUAL(0, ret);
+    CPPUNIT_ASSERT_EQUAL(0, (int)ret);
 }
 
 void
@@ -405,4 +408,232 @@ PlfsUnit::truncateTest() {
     CPPUNIT_ASSERT(stbuf.st_size == 5);
     ret = plfs_unlink(pathname);
     CPPUNIT_ASSERT_EQUAL(0, (int)ret);
+}
+
+void
+PlfsFileUnit::setUp() {
+    std::string filename = plfsmountpoint + "/fileunitfile.tst";
+    Plfs_fd *fd = NULL;
+    plfs_error_t ret;
+    ret = plfs_open(&fd, filename.c_str(), O_CREAT | O_RDWR, pid, 0666, NULL);
+    CPPUNIT_ASSERT(ret == PLFS_SUCCESS);
+    filedes = fd;
+    pid = getpid();
+    return ;
+}
+
+void
+PlfsFileUnit::tearDown()
+{
+    plfs_error_t ret;
+    uid_t uid = getuid();
+    ret = plfs_close(filedes, pid, uid, 0, NULL, &ref_count);
+    std::string filename = plfsmountpoint + "/fileunitfile.tst";
+    ret = plfs_unlink(filename.c_str());
+    return ;
+}
+
+void
+PlfsFileUnit::RWSliceTest()
+{
+    plfs_error_t ret;
+    ssize_t written;
+    char rbuf[40];
+
+    ret = plfs_write(filedes, "SIMPLE_TRUNCATE_TEST", 21, 0, pid, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_sync(filedes);
+    ret = plfs_read(filedes, rbuf, 13, 0, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    CPPUNIT_ASSERT(memcmp(rbuf, "SIMPLE_TRUNCATE_TEST", 13) == 0);
+}
+
+void
+PlfsFileUnit::RWMergeTest()
+{
+    plfs_error_t ret;
+    ssize_t written;
+    char rbuf[40];
+
+    ret = plfs_write(filedes, "Merge", 5, 0, pid, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_write(filedes, "Test", 4, 5, pid, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_sync(filedes);
+    ret = plfs_read(filedes, rbuf, 9, 0, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    CPPUNIT_ASSERT(memcmp(rbuf, "MergeTest", 9) == 0);
+}
+
+void
+PlfsFileUnit::RWXTest()
+{
+    plfs_error_t ret;
+    ssize_t written;
+    char rbuf[2][20];
+    plfs_xvec ioranges[2] = {{0, 5}, {5, 5}};
+    char *wbuf[2] = {(char *)"Hello", (char *)"World"};
+    struct iovec memranges[2] = {{wbuf[0], 5}, {wbuf[1], 5}};
+    struct iovec rdranges[2] = {{rbuf[0], 5}, {rbuf[1], 5}};
+
+    ret = plfs_writex(filedes, memranges, 2, ioranges, 2, pid, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_sync(filedes);
+    ret = plfs_readx(filedes, rdranges, 2, ioranges, 2, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    CPPUNIT_ASSERT(memcmp(rbuf[0], wbuf[0], 5) == 0);
+    CPPUNIT_ASSERT(memcmp(rbuf[1], wbuf[1], 5) == 0);
+}
+
+void
+PlfsFileUnit::RWXSliceTestW()
+{
+    plfs_error_t ret;
+    ssize_t written;
+    plfs_xvec ioranges[2] = {{0, 5}, {5, 5}};
+    char *wbuf[2] = {(char *)"Hello", (char *)"World"};
+    struct iovec memranges[2] = {{wbuf[0], 5}, {wbuf[1], 5}};
+    char rrbuf[20];
+
+    ret = plfs_writex(filedes, memranges, 2, ioranges, 2, pid, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_sync(filedes);
+    ret = plfs_read(filedes, rrbuf, 10, 0, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    CPPUNIT_ASSERT(memcmp(rrbuf, "HelloWorld", 10) == 0);
+}
+
+void
+PlfsFileUnit::RWXSliceTestR()
+{
+    plfs_error_t ret;
+    ssize_t written;
+    char rbuf[2][20];
+    plfs_xvec ioranges[2] = {{0, 5}, {5, 5}};
+    struct iovec rdranges[2] = {{rbuf[0], 5}, {rbuf[1], 5}};
+
+    ret = plfs_write(filedes, "HelloWorld", 10, 0, pid, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_sync(filedes);
+    ret = plfs_readx(filedes, rdranges, 2, ioranges, 2, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    CPPUNIT_ASSERT(memcmp(rbuf[0], "Hello", 5) == 0);
+    CPPUNIT_ASSERT(memcmp(rbuf[1], "World", 5) == 0);
+}
+
+void
+PlfsFileUnit::RWXMergeTest()
+{
+    plfs_error_t ret;
+    ssize_t written;
+    plfs_xvec ioranges[3] = {{0, 5}, {5, 5}, {10, 5}};
+    char *wbuf[3] = {(char *)"Hello", (char *)"World", (char *)"Check"};
+    struct iovec memranges[3] = {{wbuf[0], 5}, {wbuf[1], 5}, {wbuf[2], 5}};
+
+    ret = plfs_writex(filedes, memranges, 3, ioranges, 3, pid, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_sync(filedes);
+    char rbuf[2][20];
+    plfs_xvec rioranges[2] = {{3, 4}, {8, 4}};
+    struct iovec rdranges[2] = {{rbuf[0], 4}, {rbuf[1], 4}};
+    ret = plfs_readx(filedes, rdranges, 2, rioranges, 2, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    CPPUNIT_ASSERT(memcmp(rbuf[0], "loWo", 4) == 0);
+    CPPUNIT_ASSERT(memcmp(rbuf[1], "ldCh", 4) == 0);
+}
+
+void
+PlfsFileUnit::RWXChecksum()
+{
+    plfs_error_t ret;
+    ssize_t written;
+    char rbuf[2][20];
+    plfs_xvec ioranges[2] = {{0, 5}, {5, 5}};
+    char *wbuf[2] = {(char *)"Hello", (char *)"World"};
+    struct iovec memranges[2] = {{wbuf[0], 5}, {wbuf[1], 5}};
+    struct iovec rdranges[2] = {{rbuf[0], 5}, {rbuf[1], 5}};
+    Plfs_checksum checksums[2];
+    ret = plfs_get_checksum(wbuf[0], 5, &checksums[0]);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_get_checksum(wbuf[1], 5, &checksums[1]);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_writexc(filedes, memranges, 2, ioranges, 2, pid, &written,
+                      checksums);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_sync(filedes);
+    Plfs_checksum rchecksums[2];
+    ret = plfs_readxc(filedes, rdranges, 2, ioranges, 2, &written, rchecksums);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    CPPUNIT_ASSERT(memcmp(rbuf[0], wbuf[0], 5) == 0);
+    CPPUNIT_ASSERT(memcmp(rbuf[1], wbuf[1], 5) == 0);
+    CPPUNIT_ASSERT(!plfs_checksum_match(rbuf[0], 5, rchecksums[0]));
+    CPPUNIT_ASSERT(!plfs_checksum_match(rbuf[1], 5, rchecksums[1]));
+}
+
+void
+PlfsFileUnit::RWXWrongChecksum()
+{
+    plfs_error_t ret;
+    ssize_t written;
+    plfs_xvec ioranges[2] = {{0, 5}, {5, 5}};
+    char *wbuf[2] = {(char *)"Hello", (char *)"World"};
+    struct iovec memranges[2] = {{wbuf[0], 5}, {wbuf[1], 5}};
+    Plfs_checksum checksums[2];
+    ret = plfs_get_checksum(wbuf[0], 5, &checksums[0]);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_get_checksum(wbuf[1], 5, &checksums[1]);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    checksums[1] -= 1;
+    ret = plfs_writexc(filedes, memranges, 2, ioranges, 2, pid, &written,
+                      checksums);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_EIO);
+}
+
+void
+PlfsFileUnit::RWXSliceChecksum()
+{
+    plfs_error_t ret;
+    ssize_t written;
+    char rbuf[2][20];
+    plfs_xvec ioranges[2] = {{0, 5}, {5, 5}};
+    struct iovec rdranges[2] = {{rbuf[0], 5}, {rbuf[1], 5}};
+
+    ret = plfs_write(filedes, "HelloWorld", 10, 0, pid, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_sync(filedes);
+    Plfs_checksum rchecksums[2];
+    ret = plfs_readxc(filedes, rdranges, 2, ioranges, 2, &written, rchecksums);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    CPPUNIT_ASSERT(memcmp(rbuf[0], "Hello", 5) == 0);
+    CPPUNIT_ASSERT(memcmp(rbuf[1], "World", 5) == 0);
+    CPPUNIT_ASSERT(!plfs_checksum_match(rbuf[0], 5, rchecksums[0]));
+    CPPUNIT_ASSERT(!plfs_checksum_match(rbuf[1], 5, rchecksums[1]));
+}
+
+void
+PlfsFileUnit::RWXSliceMergeChecksum()
+{
+    plfs_error_t ret;
+    ssize_t written;
+    plfs_xvec ioranges[3] = {{0, 5}, {5, 5}, {10, 5}};
+    char *wbuf[3] = {(char *)"Hello", (char *)"World", (char *)"Check"};
+    struct iovec memranges[3] = {{wbuf[0], 5}, {wbuf[1], 5}, {wbuf[2], 5}};
+
+    ret = plfs_writex(filedes, memranges, 3, ioranges, 3, pid, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_sync(filedes);
+    char rbuf[2][20];
+    plfs_xvec rioranges[2] = {{3, 4}, {8, 4}};
+    struct iovec rdranges[2] = {{rbuf[0], 4}, {rbuf[1], 4}};
+    Plfs_checksum rchecksums[2];
+    ret = plfs_readx(filedes, rdranges, 2, rioranges, 2, &written);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    CPPUNIT_ASSERT(memcmp(rbuf[0], "loWo", 4) == 0);
+    CPPUNIT_ASSERT(memcmp(rbuf[1], "ldCh", 4) == 0);
+    ret = plfs_readxc(filedes, rdranges, 2, rioranges, 2, &written,rchecksums);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    CPPUNIT_ASSERT(memcmp(rbuf[0], "loWo", 4) == 0);
+    CPPUNIT_ASSERT(memcmp(rbuf[1], "ldCh", 4) == 0);
+    CPPUNIT_ASSERT(!plfs_checksum_match(rbuf[0], 4, rchecksums[0]));
+    CPPUNIT_ASSERT(!plfs_checksum_match(rbuf[1], 4, rchecksums[1]));
 }

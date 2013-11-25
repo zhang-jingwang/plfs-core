@@ -173,6 +173,8 @@ typedef uint64_t Plfs_checksum;
                              ssize_t *);
     plfs_error_t plfs_readc( Plfs_fd *, char *buf, size_t size, off_t offset,
 			     ssize_t *bytes_read, Plfs_checksum *checksum );
+    plfs_error_t plfs_readxc( Plfs_fd *, struct iovec *, int, plfs_xvec *, int,
+                              ssize_t *, Plfs_checksum *);
 
     /* plfs_readdir
      * the void * needs to be a pointer to a vector<string> but void * is
@@ -227,6 +229,8 @@ typedef uint64_t Plfs_checksum;
     // equal to total length of all plfs_xvecs.
     plfs_error_t plfs_writex ( Plfs_fd *, struct iovec *, int, plfs_xvec *,
                                int, pid_t, ssize_t *);
+    plfs_error_t plfs_writexc ( Plfs_fd *, struct iovec *, int, plfs_xvec *,
+                                int, pid_t, ssize_t *, Plfs_checksum *);
 
     // something needed for MPI-IO to know to avoid optimizations unless
     // in container mode
@@ -235,6 +239,17 @@ typedef uint64_t Plfs_checksum;
     // expose a few internals that we use for optimization
     plfs_error_t plfs_expand_path(const char *logical,char **physical, void **pmountp, void **pbackp);
     plfs_error_t plfs_gethostname(char **hname);
+
+/*
+ * Returns whether a buffer match with a checksum.
+ */
+plfs_error_t plfs_checksum_match(const char *buf, size_t size,
+                                 Plfs_checksum checksum);
+plfs_error_t plfs_get_checksum(const char *buf, size_t size,
+			       Plfs_checksum *checksum);
+
+plfs_error_t plfs_recalc_checksum(struct iovec *, int, struct iovec *,
+                                  Plfs_checksum *, int, int);
 
 #ifdef __cplusplus
 }

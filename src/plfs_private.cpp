@@ -972,13 +972,16 @@ plfs_phys_backlookup(const char *phys, PlfsMount *pmnt,
     return(rv);
 }
 
-bool
+plfs_error_t
 plfs_checksum_match(const char *buffer, size_t size, Plfs_checksum checksum)
 {
     Plfs_checksum tmp_checksum;
     plfs_error_t err = plfs_get_checksum(buffer, size, &tmp_checksum);
-    if (err != PLFS_SUCCESS) return false;
-    return memcmp(&tmp_checksum, &checksum, sizeof(checksum)) == 0;
+    if (err == PLFS_SUCCESS) {
+        if (memcmp(&tmp_checksum, &checksum, sizeof(checksum)) != 0)
+            err = PLFS_EFAULT;
+    }
+    return err;
 }
 
 plfs_error_t
@@ -996,5 +999,47 @@ plfs_get_checksum(const char *buffer, size_t size, Plfs_checksum *checksum)
 	}
 	mchecksum_destroy(tmp_checksum);
     }
+    return err;
+}
+
+plfs_error_t
+plfs_recalc_checksum(struct iovec *bufold, int cntold, struct iovec *bufnew,
+                     Plfs_checksum *csnew, int cntnew, int copy_data)
+{
+    int input_idx = 0;
+    size_t input_off = 0;
+    mchecksum_object_t tmp_checksum;
+    plfs_error_t err = PLFS_SUCCESS;
+    int ret = mchecksum_init("crc64", &tmp_checksum);
+    if (ret < 0) return PLFS_ENOMEM;
+    for (int i = 0; i < cntnew; i++) {
+        size_t remaining = bufnew[i].iov_len;
+        char *cpdst = (char *)bufnew[i].iov_base;
+        do {
+            if (input_idx >= cntold) { // bufnew is longer than bufold.
+                err = PLFS_EINVAL;
+                break;
+            }
+            if (input_off == bufold[input_idx].iov_len) {
+                ++input_idx;
+                input_off = 0;
+                continue;
+            }
+            size_t takenlen = std::min(bufold[input_idx].iov_len - input_off,
+                                       remaining);
+            void *bufstart = static_cast<char*>(bufold[input_idx].iov_base)
+                + input_off;
+            mchecksum_update(tmp_checksum, bufstart, takenlen);
+            if (copy_data) {
+                memcpy((void *)cpdst, bufstart, takenlen);
+                cpdst += takenlen;
+            }
+            input_off += takenlen;
+            remaining -= takenlen;
+        } while (remaining > 0);
+        mchecksum_get(tmp_checksum, &csnew[i], sizeof(Plfs_checksum), 1);
+        mchecksum_reset(tmp_checksum);
+    }
+    mchecksum_destroy(tmp_checksum);
     return err;
 }

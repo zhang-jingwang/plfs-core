@@ -367,7 +367,7 @@ parallize_reader(list<ReadTask> &tasks, PLFSIndex *index, ssize_t *bytes_read)
 // index is not buffered on the writes)
 plfs_error_t
 find_read_tasksc(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
-		 off_t offset, char *buf)
+		 off_t offset, char *buf, vector<struct iovec> &ranges)
 {
     plfs_error_t ret;
     size_t bytes_remaining = size;
@@ -395,6 +395,7 @@ find_read_tasksc(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
 	// Handle read pass EOF.
 	if (task.length == 0) break;
 	// Handle holes.
+        struct iovec range;
 	if (task.hole) {
 	    size_t read_len = min(task.length, bytes_remaining);
 	    task.buf = &(buf[bytes_traversed]);
@@ -402,6 +403,8 @@ find_read_tasksc(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
 	    task.partial_read = false;
 	    bytes_remaining -= read_len;
 	    bytes_traversed += read_len;
+            range.iov_base = task.buf;
+            range.iov_len = task.length;
 	}
 	if (loffset_itr == chunk_start && partial_length == task.length
 	    && chunk_start == partial_offset && bytes_remaining >= task.length)
@@ -411,21 +414,26 @@ find_read_tasksc(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
 	    task.partial_read = false;
 	    bytes_remaining -= task.length;
 	    bytes_traversed += task.length;
+            range.iov_base = task.buf;
+            range.iov_len = task.length;
 	} else {
 	    // partial read.
 	    size_t read_len = partial_offset + partial_length - loffset_itr;
 	    read_len = min(read_len, bytes_remaining);
 	    task.buf = (char *)malloc(task.length);
 	    task.logical_offset = chunk_start;
-	    bytes_remaining -= read_len;
-	    bytes_traversed += read_len;
 	    task.partial_read = true;
 	    off_t buffer_shift = loffset_itr - chunk_start;
 	    task.msrc = &(task.buf[buffer_shift]);
 	    task.mdst = &(buf[bytes_traversed]);
 	    task.mlen = read_len;
+            range.iov_base = task.msrc;
+            range.iov_len = read_len;
+	    bytes_remaining -= read_len;
+	    bytes_traversed += read_len;
 	}
 	tasks->push_back(task);
+        ranges.push_back(range);
 	// when chunk_length is 0, that means EOF
     } while(bytes_remaining);
     return(ret);
@@ -463,6 +471,7 @@ plfs_readerc(void * /* pfd */, char *buf, size_t size, off_t offset,
     ssize_t total = 0;  // no bytes read so far
     plfs_error_t plfs_error = PLFS_SUCCESS;  // no error seen so far
     list<ReadTask> tasks;   // a container of read tasks in case the logical
+    vector<struct iovec> ranges;
     // read spans multiple chunks so we can thread them
     // you might think that this can fail because this call is not in a mutex
     // so you might think it's possible that some other thread in a close is
@@ -473,7 +482,7 @@ plfs_readerc(void * /* pfd */, char *buf, size_t size, off_t offset,
     // plfs_reference_count(pfd);
     assert(size > 0);
     index->lock(__FUNCTION__); // in case another FUSE thread in here
-    plfs_error = find_read_tasksc(index,&tasks,size,offset,buf);
+    plfs_error = find_read_tasksc(index,&tasks,size,offset,buf,ranges);
     index->unlock(__FUNCTION__); // in case another FUSE thread in here
     // let's leave early if possible to make remaining code cleaner by
     // not worrying about these conditions
@@ -500,23 +509,13 @@ plfs_readerc(void * /* pfd */, char *buf, size_t size, off_t offset,
 	    return plfs_error;
 	}
     }
-    mchecksum_object_t new_checksum;
-    mchecksum_init("crc64", &new_checksum);
-    for (list<ReadTask>::iterator itr = tasks.begin();
-	 itr != tasks.end(); itr++) {
-	ReadTask &task = *itr;
-	void *cdata;
-	size_t csize;
-	if (task.partial_read) {
-	    cdata = task.msrc;
-	    csize = task.mlen;
-	} else {
-	    cdata = task.buf;
-	    csize = task.length;
-	}
-	mchecksum_update(new_checksum, cdata, csize);
+    total = 0;
+    for (size_t i = 0; i < ranges.size(); i++) {
+        total += ranges[i].iov_len;
     }
-    mchecksum_get(new_checksum, checksum, sizeof(*checksum), 1);
+    struct iovec range = {NULL, total};
+    plfs_error = plfs_recalc_checksum(&ranges[0], ranges.size(),
+                                      &range, checksum, 1, 0);
     // Now verify the buffers read from index entries.
     for (list<ReadTask>::iterator itr = tasks.begin();
 	 itr != tasks.end(); itr++) {
@@ -529,9 +528,11 @@ plfs_readerc(void * /* pfd */, char *buf, size_t size, off_t offset,
 	}
 	if (task.partial_read) {
 	    memcpy(task.mdst, task.msrc, task.mlen);
-	    total -= task.length - task.mlen;
 	}
-	if (!plfs_checksum_match(task.buf, task.length, task.checksum)) {
+	if (plfs_checksum_match(task.buf, task.length, task.checksum)) {
+            mlog(INT_ERR, "Buffer mismatch %lu@%lx, checksum:0x%llx.",
+                 (unsigned long)task.length,(unsigned long)task.logical_offset,
+                 (unsigned long long)task.checksum);
 	    plfs_error = PLFS_EIO;
 	}
 	if (task.partial_read) free(task.buf);
@@ -621,4 +622,127 @@ plfs_xreader(void *, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
     }
 
     return parallize_reader(tasks, index, bytes_read);
+}
+
+plfs_error_t
+plfs_xreaderc(void *, struct iovec *iov, int iovcnt, plfs_xvec *xvec,
+              int xvcnt, PLFSIndex *index, ssize_t *bytes_read,
+              Plfs_checksum *checksum)
+{
+    int i, j;
+    size_t remaining, bytes_remaining;
+    plfs_error_t ret;
+    off_t pos; // logical file offset reading from
+    char *base = NULL; // memory buffer pointer reading to
+    size_t size; // length of read operation
+    size_t iovLen = 0; // total size of memory segments
+    size_t xvecLen = 0; // total size of logical ranges
+    list<ReadTask> tasks;
+    vector<struct iovec> ranges;
+    ssize_t total;
+
+    // calculate the total size of memory segments and logical ranges
+    for(i=0; i<iovcnt; i++){
+	iovLen += iov[i].iov_len;
+    }
+    for(j=0; j<xvcnt; j++){
+	xvecLen += xvec[j].len;
+    }
+    if(iovLen == 0 || xvecLen == 0) {
+        *bytes_read = 0;
+        return PLFS_EINVAL;
+    }
+
+    i = j = 0; // indicators of which iovec or plfs_xvec we are processing now
+    pos = xvec[0].offset; // initialize to first plfs_xvec's starting offset
+    base = (char *)iov[0].iov_base; // points to first iovec's starting address
+    size = min(iov[0].iov_len, xvec[0].len);
+    bytes_remaining = min(iovLen, xvecLen); // read ends when bytes read meet
+					    // iovLen or xvecLen
+
+    index->lock(__FUNCTION__); // in case another FUSE thread in here
+    /* build read tasks */
+    while(bytes_remaining > 0){
+	ret = find_read_tasksc(index, &tasks, size, pos, base, ranges);
+
+	bytes_remaining -= size;
+	if(base + size < (char *)iov[i].iov_base + iov[i].iov_len){
+	    /* not done for this iovec yet */
+	    j ++;
+	    if (j >= xvcnt) break;
+	    base += size;
+	    pos = xvec[j].offset;
+	    remaining = ((char *)iov[i].iov_base + iov[i].iov_len) - base;
+	    size = min(remaining, xvec[j].len);
+	} else {
+	    /* done with current iovec */
+	    i ++;
+	    if( i >= iovcnt) break;
+	    base = (char *)iov[i].iov_base;
+	    pos += size;
+	    remaining = xvec[j].offset + xvec[j].len - pos;
+	    if(remaining == 0){
+		/* also reached end of current plfs_xvec */
+		j ++;
+		if(j >= xvcnt) break;
+		pos = xvec[j].offset;
+		remaining = xvec[j].len;
+	    }
+	    size = min(iov[i].iov_len, remaining);
+	}
+    }
+    index->unlock(__FUNCTION__); // in case another FUSE thread in here
+
+    // let's leave early if possible to make remaining code cleaner by
+    // not worrying about these conditions
+    // tasks is empty for a zero length file or an EOF
+    if ( ret != PLFS_SUCCESS || tasks.empty() ) {
+        *bytes_read = 0;
+        return ret;
+    }
+
+    ret = parallize_reader(tasks, index, &total);
+    if (ret != PLFS_SUCCESS) {
+	for (list<ReadTask>::iterator itr = tasks.begin();
+	     itr != tasks.end(); itr++) {
+	    if (itr->partial_read) free(itr->buf);
+	}
+	return ret;
+    }
+
+    // Read is done, accumulate the checksum now.
+    if (tasks.size() == 1) { // Shortcut for a single read task.
+	ReadTask &task = tasks.front();
+	if (!task.partial_read && !task.hole) {
+	    *bytes_read = total;
+	    *checksum = task.checksum;
+	    return ret;
+	}
+    }
+    ret = plfs_recalc_checksum(&ranges[0], ranges.size(),
+                               iov, checksum, iovcnt, 0);
+    // Now verify the buffers read from index entries.
+    for (list<ReadTask>::iterator itr = tasks.begin();
+	 itr != tasks.end(); itr++) {
+	ReadTask &task = *itr;
+	if (task.hole) {
+	    char *cbuf = (char *)task.buf;
+	    for (size_t citr = 0; citr < task.length; citr++)
+		if (cbuf[citr] != 0) ret = PLFS_EIO;
+	    continue;
+	}
+	if (task.partial_read) {
+	    memcpy(task.mdst, task.msrc, task.mlen);
+	    total -= task.length - task.mlen;
+	}
+	if (plfs_checksum_match(task.buf, task.length, task.checksum)) {
+            mlog(INT_ERR, "Buffer mismatch %lu@%lx, checksum:0x%llx.",
+                 (unsigned long)task.length,(unsigned long)task.logical_offset,
+                 (unsigned long long)task.checksum);
+	    ret = PLFS_EIO;
+	}
+	if (task.partial_read) free(task.buf);
+    }
+    *bytes_read = total;
+    return ret;
 }

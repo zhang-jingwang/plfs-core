@@ -77,6 +77,10 @@ class Container_fd : public Plfs_fd
 			   ssize_t *bytes_written, Plfs_checksum checksum);
 	plfs_error_t readx(struct iovec *, int, plfs_xvec *, int, ssize_t *);
 	plfs_error_t writex(struct iovec *, int, plfs_xvec *, int, pid_t, ssize_t *);
+	plfs_error_t readx(struct iovec *, int, plfs_xvec *, int,
+                           Plfs_checksum *, ssize_t *);
+	plfs_error_t writex(struct iovec *, int, plfs_xvec *, int,
+                            pid_t, Plfs_checksum *, ssize_t *);
         plfs_error_t sync();
         plfs_error_t sync(pid_t pid);
         plfs_error_t trunc(off_t offset, struct plfs_physpathinfo *ppip);

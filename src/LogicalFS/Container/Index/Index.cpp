@@ -1239,7 +1239,7 @@ Index::newLookup(off_t logical, IOSHandle **xfh, string& path,
 			      backp, chunkid, &previous );
 	    *chunk_off = previous.physical_offset;
 	    *length = previous.length;
-	    *logical_off = entry.logical_offset;
+	    *logical_off = previous.logical_offset;
 	    *checksum = previous.checksum;
 	    *coffset = previous.clogical;
 	    *clength = previous.clength;
@@ -1379,12 +1379,12 @@ Index::shrinkEntry(HostEntry *entry, off_t end, IOSHandle *wfh)
 	err = plfs_get_checksum(buffer, new_length, &new_checksum);
 	if (err == PLFS_SUCCESS) {
 	    if (plfs_checksum_match(buffer, entry->length, entry->checksum)) {
-		entry->checksum = new_checksum;
-		entry->length = new_length;
-	    } else {
 		mlog(IDX_DRARE, "Checksum mismatch @0x%llx. %s.",
 		     (unsigned long long)entry->logical_offset, buffer);
 		err = PLFS_EIO;
+	    } else {
+		entry->checksum = new_checksum;
+		entry->length = new_length;
 	    }
 	}
     }
