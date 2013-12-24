@@ -85,7 +85,7 @@ Container_OpenFile::Container_OpenFile(WriteFile *wf, Index *i, pid_t pi,
     this->mode      = m;
     this->ctime     = t.tv_sec;
     this->reopen    = false;
-    this->mcksum_enabled = true;
+    this->mcksum_enabled = (m & S_ISVTX) != 0;
     pthread_mutex_init(&index_mux,NULL);
 }
 
@@ -482,8 +482,10 @@ Container_fd::read(char *buf, size_t size, off_t offset, ssize_t *bytes_read,
         index = get_index(new_index_created);
     }
     if ( index != NULL ) {
-	Plfs_checksum tmp_checksum;
-	if (checksum == NULL) {
+	if (checksum != NULL) {
+	    ret = plfs_readerc(this->fd,buf,size,offset,index,&len,checksum);
+        } else if (this->fd->checksumEnabled()) {
+            Plfs_checksum tmp_checksum;
 	    ret = plfs_readerc(this->fd,buf,size,offset,index,&len,
 			       &tmp_checksum);
 	    if (ret == PLFS_SUCCESS
@@ -494,7 +496,7 @@ Container_fd::read(char *buf, size_t size, off_t offset, ssize_t *bytes_read,
 		ret = PLFS_EIO;
             }
 	} else {
-	    ret = plfs_readerc(this->fd,buf,size,offset,index,&len,checksum);
+            ret = plfs_reader(this->fd,buf,size,offset,index,&len);
 	}
     }
     mlog(PLFS_DAPI, "Read request on %s at offset %ld for %ld bytes: ret %d len %ld",
@@ -764,7 +766,7 @@ Container_fd::trunc(off_t offset, struct plfs_physpathinfo *ppip)
             ret = Container::truncateMeta(ppip->canbpath, offset,
                                           ppip->canback);
             if (ret == PLFS_SUCCESS) {
-                ret = wf->truncate( offset );
+                ret = wf->truncate( offset, myof->checksumEnabled() );
             }
         }
 

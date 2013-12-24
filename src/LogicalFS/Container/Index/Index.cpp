@@ -460,6 +460,15 @@ Index::mapIndex( void **ibufp, string hostindex, IOSHandle **xfh,
                  off_t *length, struct plfs_backend *hback)
 {
     plfs_error_t ret;
+    struct stat stbuf;
+    ret = hback->store->Stat(hostindex.c_str(), &stbuf);
+    if (ret != PLFS_SUCCESS) {
+        mlog(IDX_DRARE, "%s WTF stat: %s", __FUNCTION__, strplfserr(ret));
+        *ibufp = NULL;
+        *length = 0;
+        return(ret);
+    }
+    checksum_enabled = (stbuf.st_mode & S_ISVTX) != 0;
     ret = hback->store->Open(hostindex.c_str(), O_RDONLY, xfh);
     if ( ret != PLFS_SUCCESS ) {
         mlog(IDX_DRARE, "%s WTF open: %s", __FUNCTION__, strplfserr(ret));
@@ -1428,19 +1437,22 @@ Index::truncate( off_t offset )
                  __FUNCTION__, (uint)prev->second.length);
 	    if (prev->second.clength==0) {
                 mlog(IDX_DCOMMON, "Just truncated index entry to 0 length" );
-	    } else {
+	    } else if (checksum_enabled) {
 		ContainerEntry &entry = prev->second;
 		ChunkFile *cf_ptr = &(chunk_map[entry.id]);
 		plfs_error_t err = PLFS_SUCCESS;
-		if (cf_ptr->fh == NULL) {
-		    err = cf_ptr->backend->store->Open(cf_ptr->bpath.c_str(),
-						       O_RDONLY, &cf_ptr->fh);
+                if (cf_ptr->fh == NULL) {
+                    err = cf_ptr->backend->store->Open(cf_ptr->bpath.c_str(),
+                                                       O_RDONLY, &cf_ptr->fh);
 		}
 		if (err == PLFS_SUCCESS) {
 		    shrinkEntry(&entry, offset, cf_ptr->fh);
 		} else {
 		    assert(0); // Truncate didn't return a error code?
 		}
+            } else {
+                ContainerEntry &entry = prev->second;
+                entry.length = offset - entry.logical_offset;
             }
         }
     }
@@ -1450,7 +1462,7 @@ Index::truncate( off_t offset )
 
 // operates on a host entry which is not sorted
 void
-Index::truncateHostIndex( off_t offset, const map<pid_t, IOSHandle *> &fhs )
+Index::truncateHostIndex( off_t offset, const map<pid_t, IOSHandle *> *fhs )
 {
     last_offset = offset;
     vector< HostEntry > new_entries;
@@ -1460,10 +1472,15 @@ Index::truncateHostIndex( off_t offset, const map<pid_t, IOSHandle *> &fhs )
         if ( entry.logical_offset < offset ) {
             // adjust if necessary and save this one
             if ( (off_t)(entry.logical_offset + entry.length) > offset ) {
-		map<pid_t, IOSHandle *>::const_iterator fhitr = fhs.find(entry.id);
-		assert(fhitr != fhs.end());
-		fhitr->second->Fsync();
-		shrinkEntry(&entry, offset, fhitr->second);
+                if (fhs != NULL) {
+                    map<pid_t, IOSHandle *>::const_iterator fhitr;
+                    fhitr = fhs->find(entry.id);
+                    assert(fhitr != fhs->end());
+                    fhitr->second->Fsync();
+                    shrinkEntry(&entry, offset, fhitr->second);
+                } else {
+                    entry.length = offset - entry.logical_offset;
+                }
             }
             new_entries.push_back( entry );
         }

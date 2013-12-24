@@ -154,7 +154,7 @@ class Index : public Metadata, public PLFSIndex
         void merge( Index *other);
         void truncate( off_t offset );
         plfs_error_t rewriteIndex( IOSHandle *fh );
-	void truncateHostIndex( off_t , const map<pid_t, IOSHandle *> & );
+	void truncateHostIndex( off_t , const map<pid_t, IOSHandle *> * );
 
         void compress();
         plfs_error_t debug_from_stream(void *addr);
@@ -214,6 +214,7 @@ class Index : public Metadata, public PLFSIndex
         size_t total_bytes;
         bool buffering;    // are we buffering the index on write?
         bool buffer_filled; // were we buffering but ran out of space?
+        bool checksum_enabled;
         pthread_mutex_t    fd_mux;   // to allow thread safety
 };
 

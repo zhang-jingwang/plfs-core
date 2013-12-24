@@ -50,7 +50,7 @@ class WriteFile : public Metadata
             return max_writers;
         }
 
-        plfs_error_t truncate( off_t );
+        plfs_error_t truncate( off_t, bool );
         plfs_error_t extend( off_t );
 
 	plfs_error_t write( const char *, size_t, off_t, pid_t, ssize_t *,

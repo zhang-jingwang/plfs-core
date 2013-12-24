@@ -688,10 +688,11 @@ plfs_error_t WriteFile::Close()
 }
 
 // returns PLFS_SUCCESS or PLFS_E*
-plfs_error_t WriteFile::truncate( off_t offset )
+plfs_error_t WriteFile::truncate( off_t offset, bool checksum_enabled )
 {
     plfs_error_t ret = PLFS_SUCCESS;
     map<pid_t, IOSHandle *> tmp_fhs;
+    map<pid_t, IOSHandle *> *argptr = NULL;
     Metadata::truncate( offset );
     // we may be the first writer...
     if ( index == NULL ) {
@@ -700,12 +701,15 @@ plfs_error_t WriteFile::truncate( off_t offset )
             return ret;
         }
     }
-    for (map<pid_t,OpenFh>::iterator itr = fhs.begin();
-	 itr != fhs.end(); ++itr) {
-	tmp_fhs[itr->first] = itr->second.fh;
+    if (checksum_enabled) {
+        for (map<pid_t,OpenFh>::iterator itr = fhs.begin();
+             itr != fhs.end(); ++itr) {
+            tmp_fhs[itr->first] = itr->second.fh;
+        }
+        argptr = &tmp_fhs;
     }
     Util::MutexLock(   &index_mux , __FUNCTION__);
-    index->truncateHostIndex( offset, tmp_fhs );
+    index->truncateHostIndex( offset, argptr );
     Util::MutexUnlock( &index_mux, __FUNCTION__ );
     return PLFS_SUCCESS;
 }

@@ -415,7 +415,8 @@ PlfsFileUnit::setUp() {
     std::string filename = plfsmountpoint + "/fileunitfile.tst";
     Plfs_fd *fd = NULL;
     plfs_error_t ret;
-    ret = plfs_open(&fd, filename.c_str(), O_CREAT | O_RDWR, pid, 0666, NULL);
+    ret = plfs_open(&fd, filename.c_str(), O_CREAT | O_RDWR, pid,
+                    0666 | S_ISVTX, NULL);
     CPPUNIT_ASSERT(ret == PLFS_SUCCESS);
     filedes = fd;
     pid = getpid();
