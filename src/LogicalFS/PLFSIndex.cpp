@@ -405,6 +405,9 @@ find_read_tasksc(PLFSIndex *index, list<ReadTask> *tasks, size_t size,
 	    bytes_traversed += read_len;
             range.iov_base = task.buf;
             range.iov_len = task.length;
+	    tasks->push_back(task);
+	    ranges.push_back(range);
+	    continue;
 	}
 	if (loffset_itr == chunk_start && partial_length == task.length
 	    && chunk_start == partial_offset && bytes_remaining >= task.length)
