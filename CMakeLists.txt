@@ -396,8 +396,9 @@ endif()
 INSTALL(FILES "${PLFS_BUILD_DIR}/plfs.h" DESTINATION ${INCLUDEDIR})
 INSTALL(FILES "${PLFS_SOURCE_DIR}/plfs_error.h" DESTINATION ${INCLUDEDIR})
 INSTALL(FILES "${PLFS_SOURCE_DIR}/Mlog/mlogfacs.h"
-          "${PLFS_SOURCE_DIR}/plfs_internal.h" 
-          "${PLFS_SOURCE_DIR}/Util.h" 
+	      "${PLFS_SOURCE_DIR}/Mlog/mlog.h"
+	      "${PLFS_SOURCE_DIR}/plfs_internal.h"
+	      "${PLFS_SOURCE_DIR}/Util.h"
               "${PLFS_SOURCE_DIR}/COPYRIGHT.h" DESTINATION ${INCLUDEDIR}/plfs)
 
 #man pages
