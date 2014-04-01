@@ -267,10 +267,12 @@ plfs_error_t WriteFile::addPrepareWriter(pid_t pid, mode_t xmode, bool for_open,
         bool use_metalink = false;
         // discover all physical paths from logical one
         ContainerPaths xpaths;
+	Util::MutexLock( &data_mux, __FUNCTION__ );
         ret = Container::findContainerPaths(xbnode, mntpt, canbpath,
                                             xcanback, xpaths);
         if (ret!=PLFS_SUCCESS) {
             *ret_num_writers = -1;
+	    Util::MutexUnlock( &data_mux, __FUNCTION__ );
             return(ret);
         }
         struct plfs_backend *newback;
@@ -288,8 +290,9 @@ plfs_error_t WriteFile::addPrepareWriter(pid_t pid, mode_t xmode, bool for_open,
         } else {
             mlog(INT_DRARE,"Something weird in %s for %s.  Retrying.",
                  __FUNCTION__, xpaths.shadow.c_str());
-            continue;
+	    //continue;
         }
+	Util::MutexUnlock( &data_mux, __FUNCTION__ );
     }
     // all done.  we use param(ret_num_writers) to return number of writers.
     *ret_num_writers = writers;
