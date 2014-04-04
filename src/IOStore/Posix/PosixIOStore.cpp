@@ -147,13 +147,29 @@ PosixIOSHandle::Write(const void* buf, size_t len, ssize_t *bytes_written) {
     return(get_err(rv));
 }
 
+#ifndef IOV_MAX
+#define IOV_MAX 1024
+#endif
 plfs_error_t
 PosixIOSHandle::Writev(struct iovec *iov, int iovcnt, ssize_t *bytes_written) {
     POSIX_IO_ENTER(this->bpath.c_str());
-    ssize_t rv;
-    rv = writev(this->fd, iov, iovcnt);
+    ssize_t rv = 0;
+    int processed = 0;
+    *bytes_written = 0;
+    do {
+	ssize_t localrv;
+	if (iovcnt - processed <= IOV_MAX) {
+	    localrv = writev(this->fd, &iov[processed], iovcnt - processed);
+	    processed = iovcnt;
+	} else {
+	    localrv = writev(this->fd, &iov[processed], IOV_MAX);
+	    processed += IOV_MAX;
+	}
+	rv = localrv;
+	if (localrv < 0) break;
+	*bytes_written += localrv;
+    } while (processed < iovcnt);
     POSIX_IO_EXIT(this->bpath.c_str(),rv);
-    *bytes_written = rv;
     return(get_err(rv));
 }
 
