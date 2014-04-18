@@ -411,6 +411,23 @@ PlfsUnit::truncateTest() {
 }
 
 void
+PlfsUnit::GetShadowsTest() {
+    plfs_error_t ret;
+    int          nshadow, myshadow;
+    char         **shadows;
+    ret = plfs_get_shadows(plfsmountpoint.c_str(), &nshadow, &myshadow,
+                           &shadows);
+    CPPUNIT_ASSERT_EQUAL(0, (int)ret);
+    printf("\nList all shadow backends:\n");
+    for (int i = 0; i < nshadow; i++) {
+        printf("Shadow backend %d: %s %s\n", i, shadows[i],
+               (myshadow == i) ? "(Mine)" : "");
+        free(shadows[i]);
+    }
+    free(shadows);
+}
+
+void
 PlfsFileUnit::setUp() {
     std::string filename = plfsmountpoint + "/fileunitfile.tst";
     Plfs_fd *fd = NULL;

@@ -10,6 +10,7 @@ using namespace std;
 class PlfsUnit : public CPPUNIT_NS::TestFixture
 {
 	CPPUNIT_TEST_SUITE (PlfsUnit);
+        CPPUNIT_TEST (GetShadowsTest);
 	CPPUNIT_TEST (createTest);
 	CPPUNIT_TEST (openCloseTest);
 	CPPUNIT_TEST (readWriteTest);
@@ -39,6 +40,7 @@ protected:
 	void renameTest();
 	void dirTest();
 	void truncateTest();
+        void GetShadowsTest();
 private:
 	string mountpoint;
 	pid_t pid;

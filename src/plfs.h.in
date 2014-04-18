@@ -240,6 +240,9 @@ typedef uint64_t Plfs_checksum;
     plfs_error_t plfs_expand_path(const char *logical,char **physical, void **pmountp, void **pbackp);
     plfs_error_t plfs_gethostname(char **hname);
 
+    plfs_error_t plfs_get_shadows(const char *logical, int *nshadow,
+                                  int *myshadow, char ***shadows);
+
 /*
  * Returns whether a buffer match with a checksum.
  */

@@ -972,6 +972,64 @@ plfs_phys_backlookup(const char *phys, PlfsMount *pmnt,
     return(rv);
 }
 
+plfs_error_t plfs_get_shadows(const char *logical, int *nshadow,
+                              int *myshadow, char ***shadows)
+{
+    plfs_error_t rv;
+    int mntlen;
+    const char *cleanlogical;
+    PlfsMount *mnt_pt = NULL;
+    char **shadowarray;
+    int shadowcount;
+    char temp_path[PATH_MAX];
+
+    cleanlogical = NULL;
+    rv = Util::sanitize_path(logical, &cleanlogical, 1);
+    if (rv != PLFS_SUCCESS)
+        return rv;
+    rv = find_best_mount_point(cleanlogical, &mnt_pt, &mntlen);
+    if (rv != PLFS_SUCCESS)
+        goto done;
+    *nshadow = mnt_pt->nshadowback;
+    if (myshadow != NULL) {
+        char *hostname;
+        Util::hostname(&hostname);
+        *myshadow = (Container::hashValue(hostname) % mnt_pt->nshadowback);
+    }
+    if (shadows == NULL)
+        goto done;
+    /* Allocate the shadows array, the caller need to free() all its entries
+     * and itself. */
+    shadowarray = (char **)malloc(mnt_pt->nshadowback * sizeof(char *));
+    if (shadowarray == NULL) {
+        rv = PLFS_ENOMEM;
+        goto done;
+    }
+    for (shadowcount = 0; shadowcount < mnt_pt->nshadowback; shadowcount++) {
+        struct plfs_backend *back = mnt_pt->shadow_backends[shadowcount];
+        if (realpath(back->bmpoint.c_str(), temp_path) == NULL) {
+            rv = errno_to_plfs_error(errno);
+            break;
+        }
+        shadowarray[shadowcount] = strdup(temp_path);
+        if (shadowarray[shadowcount] == NULL)
+            break;
+    }
+    if (shadowcount < mnt_pt->nshadowback) {
+        for (int i = 0; i < shadowcount; i++) {
+            free(shadowarray[i]);
+        }
+        free(shadowarray);
+        if (rv == PLFS_SUCCESS) rv = PLFS_ENOMEM;
+    } else {
+        *shadows = shadowarray;
+    }
+done:
+    if (cleanlogical != logical)
+        free((void *)cleanlogical);
+    return rv;
+}
+
 plfs_error_t
 plfs_checksum_match(const char *buffer, size_t size, Plfs_checksum checksum)
 {
