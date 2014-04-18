@@ -297,7 +297,11 @@ if (ZLIB_FOUND)
 endif (ZLIB_FOUND)
 
 #mchecksum
-target_link_libraries (plfs_lib mchecksum)
+find_package (MCHECKSUM REQUIRED)
+if (MCHECKSUM_FOUND)
+    target_link_libraries (plfs_lib ${MCHECKSUM_LIBRARIES})
+    include_directories(${MCHECKSUM_INCLUDE_DIRS})
+endif (MCHECKSUM_FOUND)
 
 #pthread
 find_package (Threads REQUIRED)
