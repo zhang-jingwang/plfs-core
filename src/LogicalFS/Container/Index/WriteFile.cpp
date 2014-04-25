@@ -562,6 +562,37 @@ WriteFile::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
     return ret;
 }
 
+static plfs_error_t
+write_file_split_io(plfs_xvec *xvec, int xvcnt, std::vector<plfs_xvec> &out)
+{
+    PlfsConf *pconf = get_plfs_conf();
+    size_t max_size = pconf->max_index_length;
+    plfs_xvec temp_xvec;
+    for (int i = 0; i < xvcnt; i++) {
+        if (max_size == 0 || xvec[i].len < max_size) {
+            // Small entries, why bother?
+            out.push_back(xvec[i]);
+            continue;
+        }
+        // An optimization here, split at the boundary might benefit the read.
+        off_t start = xvec[i].offset, end = xvec[i].offset + xvec[i].len;
+        off_t splitpoint = (xvec[i].offset / max_size) * max_size + 1;
+        while (splitpoint < end) {
+            temp_xvec.offset = start;
+            temp_xvec.len = splitpoint - start;
+            out.push_back(temp_xvec);
+            start = splitpoint;
+            splitpoint += max_size;
+        }
+        if (end > start) {
+            temp_xvec.offset = start;
+            temp_xvec.len = end - start;
+            out.push_back(temp_xvec);
+        }
+    }
+    return PLFS_SUCCESS;
+}
+
 plfs_error_t
 WriteFile::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
 		  pid_t pid, Plfs_checksum * /*cs*/, ssize_t *bytes_written)
@@ -583,25 +614,33 @@ WriteFile::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
 	    size_t iovLen = 0; // total size of all memory segments in iov
 	    size_t bytes_traversed = 0; // number of bytes traversed along xvec
 	    size_t length = 0; // size of each index entry
-            struct iovec *ranges = new iovec[xvcnt];
+            std::vector<plfs_xvec> splitted;
+            std::vector<plfs_xvec>::iterator spitr, spend;
+            write_file_split_io(xvec, xvcnt, splitted);
+            spend = splitted.end();
 	    for(int i=0; i<iovcnt; i++){
 		iovLen += iov[i].iov_len;
             }
-            for(int i=0; i<xvcnt; i++){
-                ranges[i].iov_len = xvec[i].len;
+            struct iovec *ranges = new iovec[splitted.size()];
+            struct iovec *ritr = ranges;
+            for (spitr = splitted.begin(); spitr != spend; spitr++, ritr++) {
+                ritr->iov_len = spitr->len;
             }
-            Plfs_checksum *tmpcs = new Plfs_checksum[xvcnt];
-            ret = plfs_recalc_checksum(iov, iovcnt, ranges, tmpcs, xvcnt, 0);
+            Plfs_checksum *tmpcs = new Plfs_checksum[splitted.size()];
+            ret = plfs_recalc_checksum(iov, iovcnt, ranges, tmpcs,
+                                       splitted.size(), 0);
             if (ret == PLFS_SUCCESS) {
                 Util::MutexLock(   &index_mux , __FUNCTION__);
-                for(int i=0; i<xvcnt; i++){
+                Plfs_checksum *csitr = tmpcs;
+                for(spitr = splitted.begin(); spitr != spend; spitr++, csitr++)
+                {
                     assert(bytes_traversed < iovLen
-                           && xvec[i].len <= iovLen - bytes_traversed);
+                           && spitr->len <= iovLen - bytes_traversed);
                     if(bytes_traversed < iovLen){
-                        length = min(xvec[i].len, iovLen-bytes_traversed);
+                        length = min(spitr->len, iovLen-bytes_traversed);
                     }
-                    ret = writeIndex(xvec[i].offset, length, begin, end, pid,
-                                     tmpcs[i]);
+                    ret = writeIndex(spitr->offset, length, begin, end, pid,
+                                     *csitr);
                     bytes_traversed += length;
                     // don't write more data than iovLen. Just left the
                     // remainder of xvec unchanged.

@@ -601,6 +601,7 @@ plfs_dump_config(int check_dirs, int make_dir)
          << "Threadpool size: " << pconf->threadpool_size << endl
          << "Write index buffer size (mbs): " << pconf->buffer_mbs << endl
          << "Read index buffer size (mbs): " << pconf->read_buffer_mbs << endl
+         << "Max index length (bytes): " << pconf->max_index_length << endl
          << "Num Mountpoints: " << pconf->mnt_pts.size() << endl
          << "Lazy Stat: " << pconf->lazy_stat << endl
          << "Lazy Droppings: " << pconf->lazy_droppings << endl

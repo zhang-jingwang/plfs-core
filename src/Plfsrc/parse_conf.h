@@ -71,6 +71,7 @@ typedef struct PlfsConf {
     int threadpool_size;
     int buffer_mbs;  // how many mbs to buffer for write indexing
     int read_buffer_mbs; // how many mbs to buffer for metadata reading
+    int max_index_length; // max length of a single index entry can refer
     map<string,PlfsMount *> mnt_pts;
     bool direct_io; // a flag FUSE needs.  Sorry ADIO and API for the wasted bit
     bool test_metalink; // for developers only

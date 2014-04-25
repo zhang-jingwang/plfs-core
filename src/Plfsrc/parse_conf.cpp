@@ -39,6 +39,7 @@ set_default_confs(PlfsConf *pconf)
     pconf->err_msg = NULL;
     pconf->buffer_mbs = 64;
     pconf->read_buffer_mbs = 64;
+    pconf->max_index_length = 1048576;
     pconf->global_summary_dir = NULL;
     pconf->global_sum_io.prefix = NULL;
     pconf->global_sum_io.store = NULL;
@@ -115,13 +116,14 @@ expand_macros(const char *target) {
 // a list of all valid keys in plfsrc, this must be updated whenever
 // a new key is added to plfsrc
 string Valid_Keys[] = {
-    "global_params", "mount_type", "mount_point", "backends", "location",
-    "workload", "num_hostdirs", "threadpool_size", "index_buffer_mbs",
-    "glib_buffer_mbs", "read_buffer_mbs", "lazy_stat", "lazy_droppings", 
-    "syncer_ip", "global_summary_dir", "statfs", "test_metalink", 
-    "mlog_defmask", "mlog_setmasks", "mlog_stderrmask", "mlog_stderr", 
-    "mlog_file", "mlog_msgbuf_size", "mlog_syslog", "mlog_syslogfac", 
-    "mlog_ucon", "include", "type", "compress_contiguous"
+    "global_params", "mount_type", "mount_point", "backends",
+    "location", "workload", "num_hostdirs", "threadpool_size",
+    "index_buffer_mbs", "glib_buffer_mbs", "read_buffer_mbs",
+    "max_index_length", "lazy_stat", "lazy_droppings", "syncer_ip",
+    "global_summary_dir", "statfs", "test_metalink", "mlog_defmask",
+    "mlog_setmasks", "mlog_stderrmask", "mlog_stderr", "mlog_file",
+    "mlog_msgbuf_size", "mlog_syslog", "mlog_syslogfac", "mlog_ucon",
+    "include", "type", "compress_contiguous"
 };
 
 /*
@@ -236,6 +238,11 @@ namespace YAML {
                    if(!conv(node["read_buffer_mbs"],pconf.read_buffer_mbs) ||
                       pconf.read_buffer_mbs < 0)
                        pconf.err_msg = new string ("Illegal read_buffer_mbs");
+               }
+               if(node["max_index_length"]) {
+                   if(!conv(node["max_index_length"],pconf.max_index_length) ||
+                      pconf.max_index_length < 0)
+                       pconf.err_msg = new string ("Illegal max_index_length");
                }
                if(node["global_summary_dir"]) {
                    string temp;
