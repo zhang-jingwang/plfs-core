@@ -576,7 +576,7 @@ write_file_split_io(plfs_xvec *xvec, int xvcnt, std::vector<plfs_xvec> &out)
         }
         // An optimization here, split at the boundary might benefit the read.
         off_t start = xvec[i].offset, end = xvec[i].offset + xvec[i].len;
-        off_t splitpoint = (xvec[i].offset / max_size) * max_size + 1;
+        off_t splitpoint = (xvec[i].offset / max_size + 1) * max_size;
         while (splitpoint < end) {
             temp_xvec.offset = start;
             temp_xvec.len = splitpoint - start;

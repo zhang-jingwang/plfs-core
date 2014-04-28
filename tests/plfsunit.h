@@ -61,6 +61,7 @@ class PlfsFileUnit : public CPPUNIT_NS::TestFixture
         CPPUNIT_TEST (RWXWrongChecksum);
         CPPUNIT_TEST (RWXSliceChecksum);
         CPPUNIT_TEST (RWXSliceMergeChecksum);
+        CPPUNIT_TEST (RWXChecksumLarge);
 	CPPUNIT_TEST_SUITE_END ();
 public:
         void setUp (void);
@@ -77,6 +78,7 @@ protected:
         void RWXWrongChecksum();
         void RWXSliceChecksum();
         void RWXSliceMergeChecksum();
+        void RWXChecksumLarge();
 private:
         Plfs_fd *filedes;
         pid_t pid;

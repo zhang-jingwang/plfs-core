@@ -655,3 +655,38 @@ PlfsFileUnit::RWXSliceMergeChecksum()
     CPPUNIT_ASSERT(!plfs_checksum_match(rbuf[0], 4, rchecksums[0]));
     CPPUNIT_ASSERT(!plfs_checksum_match(rbuf[1], 4, rchecksums[1]));
 }
+
+void
+PlfsFileUnit::RWXChecksumLarge()
+{
+    plfs_error_t ret;
+    ssize_t written;
+    size_t blen1 = 104857698, blen2 = 1048576*19 + 38949;
+    char *rbuf[2];
+    plfs_xvec ioranges[2] = {{0, blen1}, {blen1, blen2}};
+    char *wbuf[2];
+    rbuf[0] = new char[blen1];
+    wbuf[0] = new char[blen1];
+    rbuf[1] = new char[blen2];
+    wbuf[1] = new char[blen2];
+    struct iovec memranges[2] = {{wbuf[0], blen1}, {wbuf[1], blen2}};
+    struct iovec rdranges[2] = {{rbuf[0], blen1}, {rbuf[1], blen2}};
+    Plfs_checksum checksums[2];
+    for (int i = 0; i < blen1; i++) wbuf[0][i] = 'A' + (i % 26);
+    for (int i = 0; i < blen2; i++) wbuf[1][i] = 'a' + (i % 26);
+    ret = plfs_get_checksum(wbuf[0], blen1, &checksums[0]);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_get_checksum(wbuf[1], blen2, &checksums[1]);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_writexc(filedes, memranges, 2, ioranges, 2, pid, &written,
+                      checksums);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    ret = plfs_sync(filedes);
+    Plfs_checksum rchecksums[2];
+    ret = plfs_readxc(filedes, rdranges, 2, ioranges, 2, &written, rchecksums);
+    CPPUNIT_ASSERT_EQUAL(ret, PLFS_SUCCESS);
+    CPPUNIT_ASSERT(memcmp(rbuf[0], wbuf[0], blen1) == 0);
+    CPPUNIT_ASSERT(memcmp(rbuf[1], wbuf[1], blen2) == 0);
+    CPPUNIT_ASSERT(!plfs_checksum_match(rbuf[0], blen1, rchecksums[0]));
+    CPPUNIT_ASSERT(!plfs_checksum_match(rbuf[1], blen2, rchecksums[1]));
+}
