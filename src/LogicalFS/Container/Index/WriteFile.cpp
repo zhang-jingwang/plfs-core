@@ -282,11 +282,6 @@ plfs_error_t WriteFile::addPrepareWriter(pid_t pid, mode_t xmode, bool for_open,
             // a sibling raced us and made the directory or link for us
             // or we did
             this->setSubdirPath(physical_hostdir, newback);
-            if (!use_metalink) {
-                this->setContainerPath(xpaths.canonical);
-            } else {
-                this->setContainerPath(xpaths.shadow);
-            }
         } else {
             mlog(INT_DRARE,"Something weird in %s for %s.  Retrying.",
                  __FUNCTION__, xpaths.shadow.c_str());
