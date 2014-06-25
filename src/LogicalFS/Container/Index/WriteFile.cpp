@@ -80,7 +80,7 @@ void WriteFile::setSubdirPath (string p, struct plfs_backend *wrback)
 
 WriteFile::~WriteFile()
 {
-    mlog(WF_DAPI, "Delete self %s", container_path.c_str() );
+    mlog(WF_INFO, "Delete self %s", container_path.c_str() );
     Close();
     if ( index ) {
         closeIndex();
@@ -199,7 +199,7 @@ plfs_error_t WriteFile::addWriter(pid_t pid, bool for_open, bool defer_open,
         writers = incrementOpens(0);
     }
 
-    mlog(WF_DAPI, "%s (%d) on %s now has %d writers",
+    mlog(WF_INFO, "%s (%d) on %s now has %d writers",
          __FUNCTION__, pid, container_path.c_str(), writers );
     Util::MutexUnlock( &data_mux, __FUNCTION__ );
     return ret;
@@ -373,7 +373,7 @@ plfs_error_t WriteFile::closeFh(IOSHandle *fh)
     paths_itr = paths.find( fh );
     string path = ( paths_itr == paths.end() ? "ENOENT?" : paths_itr->second );
     plfs_error_t ret = this->subdirback->store->Close(fh);
-    mlog(WF_DAPI, "%s:%s closed fh %p for %s: %d %s",
+    mlog(WF_INFO, "%s:%s closed fh %p for %s: %d %s",
          __FILE__, __FUNCTION__, fh, path.c_str(), ret,
          ( ret != PLFS_SUCCESS ? strplfserr(ret) : "success" ) );
     paths.erase ( fh );
@@ -400,7 +400,7 @@ WriteFile::removeWriter( pid_t pid, int *ret_writers )
     }
     Util::MutexUnlock( &data_mux, __FUNCTION__ );
 
-    mlog(WF_DAPI, "%s (%d) on %s now has %d writers: %d",
+    mlog(WF_INFO, "%s (%d) on %s now has %d writers: %d",
          __FUNCTION__, pid, container_path.c_str(), writers, ret );
     *ret_writers = ( ret == PLFS_SUCCESS ) ? writers : -1;
     return ret;
@@ -529,7 +529,9 @@ WriteFile::writex(struct iovec *iov, int iovcnt, plfs_xvec *xvec, int xvcnt,
 	// write the data file
 	double begin, end;
 	begin = Util::getTime();
+        mlog(WF_INFO, "Calling writev with %d vecs",xvcnt);
 	ret = wfh->Writev(iov, iovcnt, &written);
+        mlog(WF_INFO, "Called writev with %d vecs: %d (%zd)",xvcnt,ret,written);
 	end = Util::getTime();
 	// then the index
 	if ( ret == PLFS_SUCCESS ) {
@@ -672,7 +674,7 @@ plfs_error_t WriteFile::openIndex( pid_t pid )
     if ( ret == PLFS_SUCCESS ) {
         //XXXCDC:iostore need to pass the backend down into index?
         index = new Index(container_path, subdirback, fh);
-        mlog(WF_DAPI, "In open Index path is %s",index_path.c_str());
+        mlog(WF_INFO, "In open Index path is %s",index_path.c_str());
         index->index_path = index_path;
         if ( index_buffer_mbs ) {
             index->startBuffering();
@@ -775,7 +777,7 @@ WriteFile::openFile(string physicalpath, mode_t xmode, IOSHandle **ret_hand )
     IOSHandle *fh;
     plfs_error_t rv;
     rv = this->subdirback->store->Open(physicalpath.c_str(), flags, xmode, &fh);
-    mlog(WF_DAPI, "%s.%s open %s : %p %s",
+    mlog(WF_INFO, "%s.%s open %s : %p %s",
          __FILE__, __FUNCTION__,
          physicalpath.c_str(),
          fh, ( rv == PLFS_SUCCESS ? "SUCCESS" : strplfserr(rv) ) );
@@ -807,7 +809,7 @@ plfs_error_t WriteFile::restoreFds( bool droppings_were_truncd )
     // to guard against it.  I guess it if does happen we just need to do
     // reg ex changes to all the paths
     //assert( ! has_been_renamed );
-    mlog(WF_DAPI, "Entering %s",__FUNCTION__);
+    mlog(WF_INFO, "Entering %s",__FUNCTION__);
     // first reset the index fd
     if ( index ) {
         IOSHandle *restfh, *retfh;
@@ -855,6 +857,6 @@ plfs_error_t WriteFile::restoreFds( bool droppings_were_truncd )
     // normally we return ret at the bottom of our functions but this
     // function had so much error handling, I just cut out early on any
     // error.  therefore, if we get here, it's happy days!
-    mlog(WF_DAPI, "Exiting %s",__FUNCTION__);
+    mlog(WF_INFO, "Exiting %s",__FUNCTION__);
     return PLFS_SUCCESS;
 }

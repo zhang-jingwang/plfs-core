@@ -5,6 +5,15 @@
 #include "Util.h"
 #include <cstdlib>
 
+#include "mlog.h"
+#include "mlogfacs.h"
+
+#define GLIB_IO_ENTER(X) \
+    mlog(POSIXIO_INFO,"%s Entering %s: %s\n", __FILE__, __FUNCTION__, X);
+
+#define GLIB_IO_EXIT(X, Y) \
+    mlog(POSIXIO_INFO,"%s Exiting %s: %s - %lld\n", __FILE__, __FUNCTION__, X, (long long int)Y);
+
 /*
  * IOStore functions that return plfs_error_t should return PLFS_SUCCESS on success
  * and PLFS_E* on error.   The POSIX API uses 0 for success, -1 for failure
@@ -199,6 +208,22 @@ GlibIOSHandle::Size(off_t *ret_offset) {
     }
     return(get_err(rv));
 };
+
+plfs_error_t
+GlibIOSHandle::Writev(struct iovec *iov, int iovcnt, ssize_t *bytes_written) {
+  GLIB_IO_ENTER(this->path.c_str());
+  ssize_t rv = 0;
+  int i;
+  *bytes_written = 0;
+  for ( i = 0; i < iovcnt; i++ ) {
+    ssize_t bytes;
+    rv = Write(iov[i].iov_base, iov[i].iov_len, &bytes);
+    if (rv < 0) break;
+    *bytes_written += bytes;
+  }
+  GLIB_IO_EXIT(this->path.c_str(),rv);
+  return(get_err(rv));
+}
 
 plfs_error_t
 GlibIOSHandle::Write(const void* buf, size_t len, ssize_t *bytes_written) {
