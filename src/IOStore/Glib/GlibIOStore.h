@@ -15,7 +15,7 @@ class GlibIOSHandle: public IOSHandle {
  public:
 
     GlibIOSHandle(string path, unsigned int buffsize);
-    ~GlibIOSHandle(){};
+    ~GlibIOSHandle(){ pthread_mutex_destroy(&this->io_lock); };
 
     plfs_error_t Open(int flags, mode_t mode);
     plfs_error_t Fstat(struct stat* buf);
@@ -34,6 +34,7 @@ class GlibIOSHandle: public IOSHandle {
     plfs_error_t Close();
 
     FILE *fp;
+    pthread_mutex_t io_lock;
     string path;
     unsigned int buffsize;
 };

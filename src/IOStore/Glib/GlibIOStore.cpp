@@ -47,6 +47,7 @@ GlibIOStore::Open(const char *path, int flags, mode_t mode, IOSHandle **ret_hand
 GlibIOSHandle::GlibIOSHandle(string newpath, unsigned int bsize) {
     this->path = newpath;
     this->buffsize = bsize;
+    pthread_mutex_init(&this->io_lock, NULL);
 }
 
 
@@ -147,6 +148,7 @@ plfs_error_t
 GlibIOSHandle::Pread(void* buf, size_t count, off_t offset, ssize_t *bytes_read) {
     int ret;
     /* XXX: we need some mutex locking here for concurrent access? */
+    pthread_mutex_lock(&this->io_lock);
     ret = fseek(this->fp,offset,SEEK_SET);
     if (ret == 0) {
         ret = fread(buf,1,count,this->fp);
@@ -157,6 +159,7 @@ GlibIOSHandle::Pread(void* buf, size_t count, off_t offset, ssize_t *bytes_read)
             *bytes_read = ret;
         }
     }
+    pthread_mutex_unlock(&this->io_lock);
     return(get_err(ret));
 }
 
@@ -164,6 +167,7 @@ plfs_error_t
 GlibIOSHandle::Pwrite(const void* buf, size_t count, off_t offset, ssize_t *bytes_written) {
     int ret;
     /* XXX: we need some mutex locking here for concurrent access? */
+    pthread_mutex_lock(&this->io_lock);
     ret = fseek(this->fp,offset,SEEK_SET);
     if (ret == 0) {
         ret = fwrite(buf,1,count,this->fp);
@@ -174,6 +178,7 @@ GlibIOSHandle::Pwrite(const void* buf, size_t count, off_t offset, ssize_t *byte
             *bytes_written = ret;
         }
     }
+    pthread_mutex_unlock(&this->io_lock);
     return(get_err(ret));
 }
 
@@ -214,6 +219,7 @@ GlibIOSHandle::Writev(struct iovec *iov, int iovcnt, ssize_t *bytes_written) {
   GLIB_IO_ENTER(this->path.c_str());
   ssize_t rv = 0;
   int i;
+  pthread_mutex_lock(&this->io_lock);
   *bytes_written = 0;
   for ( i = 0; i < iovcnt; i++ ) {
     ssize_t bytes;
@@ -222,6 +228,7 @@ GlibIOSHandle::Writev(struct iovec *iov, int iovcnt, ssize_t *bytes_written) {
     *bytes_written += bytes;
   }
   GLIB_IO_EXIT(this->path.c_str(),rv);
+  pthread_mutex_unlock(&this->io_lock);
   return(get_err(rv));
 }
 
