@@ -672,6 +672,7 @@ ContainerFileSystem::mkdir(struct plfs_physpathinfo *ppip, mode_t mode)
 {
     plfs_error_t ret = PLFS_SUCCESS;
     CreateOp op(mode);
+    op.ignoreErrno(PLFS_EEXIST);
     ret = plfs_backends_op(ppip, op);
     return(ret);
 }
